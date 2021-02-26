@@ -934,6 +934,13 @@ void FixConp::inv()
     int info;
     int infosum;
 
+    /* RS: added code start */
+    int ij;
+    double AinvE [elenum_all] = {0};
+    double EtAinvE = 0 ;
+    double EtAinv [elenum_all] = {0};
+    /* RS: added code end */
+
     dgetrf_(&m,&n,aaa_all,&lda,ipiv,&info);
     infosum = info;
     dgetri_(&n,aaa_all,&lda,ipiv,work,&lwork,&info);
@@ -944,6 +951,34 @@ void FixConp::inv()
     work = NULL;
   
     if (infosum != 0) error->all(FLERR,"Inversion failed!");
+
+      /* RS: added code start */
+      for (i = 0; i < elenum_all; i++) {
+          for (j = 0; j < elenum_all; j++) {
+              ij = i * elenum_all + j;
+              AinvE[i] += aaa_all[ij];
+          }
+      }
+
+      for (i = 0; i < elenum_all; i++) {
+          EtAinvE += AinvE[i];
+      }
+
+      for (j = 0; j < elenum_all; j++) {
+          for (i = 0; i < elenum_all; i++) {
+              ij = i * elenum_all + j;
+              EtAinv[j] += aaa_all[ij];
+          }
+      }
+
+      for (i = 0; i < elenum_all; i++) {
+          for (j = 0; j < elenum_all; j++) {
+              ij = i * elenum_all + j;
+              aaa_all[ij] = aaa_all[ij] - ((AinvE[i] * EtAinv[j])/EtAinvE);
+          }
+      }
+      /* RS: added code end */
+
     if (me == 0) {
       FILE *outinva = fopen("inv_a_matrix","w");
       for (i = 0; i < elenum_all; i++) {
