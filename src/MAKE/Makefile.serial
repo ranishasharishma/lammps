@@ -13,7 +13,7 @@ DEPFLAGS =	-M
 
 LINK =		g++
 LINKFLAGS =	-g -O
-LIB = 
+LIB =-L /mnt/c/Users/SitlapersadRS/tools/lapack-3.9.0 -llapack -lrefblas -lgfortran 
 SIZE =		size
 
 ARCHIVE =	ar
