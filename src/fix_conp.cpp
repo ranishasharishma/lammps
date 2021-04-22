@@ -64,29 +64,41 @@ extern "C" {
 FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg)
 {
-  if (narg < 11) error->all(FLERR,"Illegal fix conp command");
+  if (narg < 10) error->all(FLERR,"Illegal fix conp command");	//RS on 22-04-2022: changed 11 to 10 since there is one input argument less because of elimination of eta
+//if (narg < 11) error->all(FLERR,"Illegal fix conp command");
   maxiter = 100;
   tolerance = 0.000001;
-  everynum = utils::numeric(FLERR,arg[3],false,lmp);
-  eta = utils::numeric(FLERR,arg[4],false,lmp);
-  molidL = utils::inumeric(FLERR,arg[5],false,lmp);
-  molidR = utils::inumeric(FLERR,arg[6],false,lmp);
-  vL = utils::numeric(FLERR,arg[7],false,lmp);
-  vR = utils::numeric(FLERR,arg[8],false,lmp);
-  if (strcmp(arg[9],"cg") == 0) {
+  everynum = utils::numeric(FLERR,arg[3],false,lmp);	
+  //eta = utils::numeric(FLERR,arg[4],false,lmp);	//RS on 21-04-2021: commented out line that reads eta 
+  molidL = utils::inumeric(FLERR,arg[4],false,lmp);	//RS on 22-04-2022: lowered value in arg[...] in the next lines by 1 due to removal of eta
+//molidL = utils::inumeric(FLERR,arg[5],false,lmp);
+  molidR = utils::inumeric(FLERR,arg[5],false,lmp);
+//molidR = utils::inumeric(FLERR,arg[6],false,lmp);
+  vL = utils::numeric(FLERR,arg[6],false,lmp);
+//vL = utils::numeric(FLERR,arg[7],false,lmp);
+  vR = utils::numeric(FLERR,arg[7],false,lmp);
+//vR = utils::numeric(FLERR,arg[8],false,lmp);
+  if (strcmp(arg[8],"cg") == 0) {
+//if (strcmp(arg[9],"cg") == 0) {
     minimizer = 0;
-  } else if (strcmp(arg[9],"inv") == 0) {
+  } else if (strcmp(arg[8],"inv") == 0) {
+//} else if (strcmp(arg[9],"inv") == 0) {
     minimizer = 1;
   } else error->all(FLERR,"Unknown minimization method");
   
-  outf = fopen(arg[10],"w");
-  if (narg == 12) {
+  outf = fopen(arg[9],"w");
+//outf = fopen(arg[10],"w");
+  if (narg == 11) {
+//if (narg == 12) {
     outa = NULL;
-    a_matrix_fp = fopen(arg[11],"r");
+    a_matrix_fp = fopen(arg[10],"r");
+  //a_matrix_fp = fopen(arg[11],"r");
     if (a_matrix_fp == NULL) error->all(FLERR,"Cannot open A matrix file");
-    if (strcmp(arg[11],"org") == 0) {
+    if (strcmp(arg[10],"org") == 0) {
+  //if (strcmp(arg[11],"org") == 0) {
       a_matrix_f = 1;
-    } else if (strcmp(arg[11],"inv") == 0) {
+    } else if (strcmp(arg[10],"inv") == 0) {
+  //} else if (strcmp(arg[11],"inv") == 0) {
       a_matrix_f = 2;
     } else {
       error->all(FLERR,"Unknown A matrix type");
@@ -289,7 +301,7 @@ void FixConp::pre_force(int vflag)
     equation_solve();
     update_charge();
   }
-  force_cal(vflag);
+  //force_cal(vflag);		RS on 22-04-2021: commented out to remove forces due to erfc(eta*rij) terms and the added energy (eta/sqrt(2pi))*sum(Q_i^2), later in the code the function force_cal is also commented out.
 }
 
 /* ---------------------------------------------------------------------- */
@@ -577,7 +589,8 @@ void FixConp::a_cal()
         aaa[idx1d] += CON_4PIoverV*zi*eleallx[j][2];
       }
       idx1d = elei*elenum_all+elealli;
-      aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
+      aaa[idx1d] +=                  -CON_2overPIS*g_ewald; //gaussian self correction		//RS on 22-04-2021: removed eta term in self correction term in the A-matrix
+    //aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
     }
   }
   
@@ -933,7 +946,7 @@ void FixConp::inv()
     double *work = new double[lwork];
     int info;
     int infosum;
-
+    //RS on 22-04-2021: on an earlier date neutrality was enforced below by transforming the inverse of the A-marix to the S-matrix
     /* RS: added code start */
     int ij;
     double AinvE [elenum_all] = {0};
@@ -1028,27 +1041,27 @@ void FixConp::update_charge()
   }
 }
 /* ---------------------------------------------------------------------- */
-void FixConp::force_cal(int vflag)
-{
-  int i;
-  if (force->kspace->energy) {
-    double eleqsqsum = 0.0;
-    int nlocal = atom->nlocal;
-    for (i = 0; i < nlocal; i++) {
-      if (electrode_check(i)) {
-        eleqsqsum += atom->q[i]*atom->q[i];
-      }
-    }
-    double tmp;
-    MPI_Allreduce(&eleqsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
-    eleqsqsum = tmp;
-    double scale = 1.0;
-    double qscale = force->qqrd2e*scale;
-    force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
-  }
-  coul_cal(0,NULL,NULL);
+//void FixConp::force_cal(int vflag)		//RS on 22-04-2021: commented out force_cal function, in which foces due to erfc(eta*rij) and an extra energy term due to eta were calculated
+//{
+//  int i;
+//  if (force->kspace->energy) {
+//    double eleqsqsum = 0.0;
+//    int nlocal = atom->nlocal;
+//    for (i = 0; i < nlocal; i++) {
+//      if (electrode_check(i)) {
+//        eleqsqsum += atom->q[i]*atom->q[i];
+//      }
+//    }
+//    double tmp;
+//    MPI_Allreduce(&eleqsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
+//    eleqsqsum = tmp;
+//    double scale = 1.0;
+//    double qscale = force->qqrd2e*scale;
+//    force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
+//  }
+//  coul_cal(0,NULL,NULL);
 
-}
+//}
 /* ---------------------------------------------------------------------- */
 void FixConp::coul_cal(int coulcalflag,double *m,int *ele2tag)
 {
@@ -1111,28 +1124,29 @@ void FixConp::coul_cal(int coulcalflag,double *m,int *ele2tag)
                 erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
                 dudq = erfc/r;
               }
-              if (checksum == 1) etarij = eta*r;
-              else if (checksum == 2) etarij = eta*r/sqrt(2);
-              expm2 = exp(-etarij*etarij);
-              t = 1.0 / (1.0+EWALD_P*etarij);
-              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+              //if (checksum == 1) etarij = eta*r;			//RS on 22-04-2021: this line, the next 4 lines and a line further in the code (dudq = -erfc/r) are commented out to remove erfc(eta*rij) terms from A and B matrix)
+              //else if (checksum == 2) etarij = eta*r/sqrt(2);
+              //expm2 = exp(-etarij*etarij);
+              //t = 1.0 / (1.0+EWALD_P*etarij);
+              //erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
   
-              if (coulcalflag == 0) {
-                prefactor = qqrd2e*qtmp*q[j]/r;
-                forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
-                fpair = forcecoul*r2inv;
-                f[i][0] += delx*forcecoul;
-                f[i][1] += dely*forcecoul;
-                f[i][2] += delz*forcecoul;
-                if (newton_pair || j < nlocal) {
-                  f[j][0] -= delx*forcecoul;
-                  f[j][1] -= dely*forcecoul;
-                  f[j][2] -= delz*forcecoul;
-                }
-                ecoul = -prefactor*erfc;
-                force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
-              } else {
-                dudq -= erfc/r;
+              //if (coulcalflag == 0) {					//RS on 22-04-2021: in force_cal, coulcalflag =0, since force_cal is removed also this part is removed
+               // prefactor = qqrd2e*qtmp*q[j]/r;
+                //forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
+                //fpair = forcecoul*r2inv;
+                //f[i][0] += delx*forcecoul;
+                //f[i][1] += dely*forcecoul;
+                //f[i][2] += delz*forcecoul;
+                //if (newton_pair || j < nlocal) {
+                  //f[j][0] -= delx*forcecoul;
+                  //f[j][1] -= dely*forcecoul;
+                  //f[j][2] -= delz*forcecoul;
+                //}
+                //ecoul = -prefactor*erfc;
+                //force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
+              //} else {
+	      if (coulcalflag != 0) {	//RS on 22-04-2021: added this line since "if (coulcalflag == 0) {" was removed earlier 
+                //dudq -= erfc/r;	//RS on 22-04-2021: commented out to eliminate erfc(eta*rij) terms in A and B matrix
                 elei = -1;
                 elej = -1;
                 for (k = 0; k < elenum; ++k) {

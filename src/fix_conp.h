@@ -69,7 +69,8 @@ class FixConp : public Fix {
 
   double unitk[3];
   double *ug;
-  double g_ewald,eta,gsqmx,volume,slab_volfactor;
+  double g_ewald,    gsqmx,volume,slab_volfactor;	//RS on 21-4-2021: changed to eliminate eta
+//double g_ewald,eta,gsqmx,volume,slab_volfactor;
   int *kxvecs,*kyvecs,*kzvecs;
   double ***cs,***sn,**csk,**snk;
   int kmax,kmax3d,kmax_created,kcount;
