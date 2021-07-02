@@ -26,7 +26,9 @@ FixStyle(conp,FixConp)
 #define LMP_FIX_CONP_H
 
 #include "fix.h"
-
+#include "pppm.h"
+#include "pair_lj_cut_coul_long.h"
+#include "pair.h"
 namespace LAMMPS_NS {
 
 class FixConp : public Fix {
@@ -49,6 +51,7 @@ class FixConp : public Fix {
   void cg();
   void inv();
   void coul_cal(int, double *,int *);
+  void pot_wall_wall();
 
  private:
   int me,runstage;
@@ -82,6 +85,8 @@ class FixConp : public Fix {
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*curr_tag2eleall,*ele2tag;
 };
+
+
 
 }
 

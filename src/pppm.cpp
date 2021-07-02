@@ -192,6 +192,43 @@ void PPPM::init()
 
   triclinic_check();
 
+  FILE *out_pppm_init_flags = fopen("pppm_init_flags", "a");
+  fprintf(out_pppm_init_flags, "%20s %20d", "triclinic", triclinic);
+  fprintf(out_pppm_init_flags, "\n");
+  fprintf(out_pppm_init_flags, "%20s %20d", "domain->triclinic", domain->triclinic);
+  fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "differentiation_flag", differentiation_flag);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "slabflag", slabflag);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->dimension", domain->dimension);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "atom->q_flag", atom->q_flag);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->nonperiodic", domain->nonperiodic);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->xperiodic", domain->xperiodic);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->yperiodic", domain->yperiodic);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->boundary[1][1]", domain->boundary[1][1]);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->boundary[1][2]", domain->boundary[1][2]);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->boundary[1][2]", domain->boundary[1][2]);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->boundary[2][1]", domain->boundary[2][1]);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->boundary[2][2]", domain->boundary[2][2]);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->boundary[3][1]", domain->boundary[3][1]);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "domain->boundary[3][2]", domain->boundary[3][2]);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "order", order);
+    fprintf(out_pppm_init_flags, "\n");
+
+
   if (triclinic != domain->triclinic)
     error->all(FLERR,"Must redefine kspace_style after changing to triclinic box");
 
@@ -232,6 +269,9 @@ void PPPM::init()
   if (p_cutoff == nullptr)
     error->all(FLERR,"KSpace style is incompatible with Pair style");
   cutoff = *p_cutoff;
+
+    fprintf(out_pppm_init_flags, "%20s %20f", "cutoff", cutoff);
+    fprintf(out_pppm_init_flags, "\n");
 
   // if kspace is TIP4P, extract TIP4P params from pair style
   // bond/angle are not yet init(), so insure equilibrium request is valid
@@ -275,14 +315,35 @@ void PPPM::init()
   qsum_qsq();
   natoms_original = atom->natoms;
 
+    fprintf(out_pppm_init_flags, "%20s %20f", "qqrd2e", qqrd2e);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20ld", "natoms_original", natoms_original);
+    fprintf(out_pppm_init_flags, "\n");
+
   // set accuracy (force units) from accuracy_relative or accuracy_absolute
+
+    fprintf(out_pppm_init_flags, "%20s %20e", "accuracy_absolute", accuracy_absolute);
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20e", "accuracy_relative", accuracy_relative );
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20f", "two_charge_force", two_charge_force );
+    fprintf(out_pppm_init_flags, "\n");
 
   if (accuracy_absolute >= 0.0) accuracy = accuracy_absolute;
   else accuracy = accuracy_relative * two_charge_force;
 
+    fprintf(out_pppm_init_flags, "%20s %20e", "accuracy", accuracy );
+    fprintf(out_pppm_init_flags, "\n");
+
   // free all arrays previously allocated
 
   deallocate();
+
+    fprintf(out_pppm_init_flags, "%20s %20d", "peratom_allocate_flag", peratom_allocate_flag );
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "%20s %20d", "group_allocate_flag", group_allocate_flag );
+    fprintf(out_pppm_init_flags, "\n");
+
   if (peratom_allocate_flag) deallocate_peratom();
   if (group_allocate_flag) deallocate_groups();
 
@@ -295,10 +356,20 @@ void PPPM::init()
   GridComm *gctmp = nullptr;
   int iteration = 0;
 
+    fprintf(out_pppm_init_flags, "%20s %20d", "minorder", minorder );
+    fprintf(out_pppm_init_flags, "\n");
+
   while (order >= minorder) {
     if (iteration && me == 0)
       error->warning(FLERR,"Reducing PPPM order b/c stencil extends "
                      "beyond nearest neighbor processor");
+
+      fprintf(out_pppm_init_flags, "%20s %20d", "stagger_flag", stagger_flag );
+      fprintf(out_pppm_init_flags, "\n");
+      fprintf(out_pppm_init_flags, "%20s %20d", "differentiation_flag", differentiation_flag );
+      fprintf(out_pppm_init_flags, "\n");
+      fprintf(out_pppm_init_flags, "%20s %20d", "overlap_allowed", overlap_allowed );
+      fprintf(out_pppm_init_flags, "\n");
 
     if (stagger_flag && !differentiation_flag) compute_gf_denom();
     set_grid_global();
@@ -326,6 +397,10 @@ void PPPM::init()
 
   // adjust g_ewald
 
+    fprintf(out_pppm_init_flags, "%20s %20d", "gewaldflag", gewaldflag );
+    fprintf(out_pppm_init_flags, "\n");
+    fprintf(out_pppm_init_flags, "\n");
+fclose(out_pppm_init_flags);
   if (!gewaldflag) adjust_gewald();
 
   // calculate the final accuracy
@@ -371,12 +446,23 @@ void PPPM::init()
 
 void PPPM::setup()
 {
+
+    FILE *out_pppm_setup_flags = fopen("pppm_setup_flags", "a");
+    fprintf(out_pppm_setup_flags, "%20s %20d\n", "triclinic", triclinic);
+
   if (triclinic) {
     setup_triclinic();
     return;
   }
 
   // perform some checks to avoid illegal boundaries with read_data
+
+    fprintf(out_pppm_setup_flags, "%20s %20d\n", "slabflag", slabflag);
+    fprintf(out_pppm_setup_flags, "%20s %20d\n", "domain->nonperiodic", domain->nonperiodic);
+    fprintf(out_pppm_setup_flags, "%20s %20d\n", "domain->xperiodic", domain->xperiodic);
+    fprintf(out_pppm_setup_flags, "%20s %20d\n", "domain->yperiodic", domain->yperiodic);
+    fprintf(out_pppm_setup_flags, "%20s %20d\n", "domain->boundary[2][0]", domain->boundary[2][0]);
+    fprintf(out_pppm_setup_flags, "%20s %20d\n", "domain->boundary[2][1]", domain->boundary[2][1]);
 
   if (slabflag == 0 && domain->nonperiodic > 0)
     error->all(FLERR,"Cannot use non-periodic boundaries with PPPM");
@@ -408,6 +494,9 @@ void PPPM::setup()
 
   delvolinv = delxinv*delyinv*delzinv;
 
+    fprintf(out_pppm_setup_flags, "%20s %20f\n", "volume", volume);
+    fprintf(out_pppm_setup_flags, "%20s %20f\n", "delvolinv", delvolinv);
+
   double unitkx = (MY_2PI/xprd);
   double unitky = (MY_2PI/yprd);
   double unitkz = (MY_2PI/zprd_slab);
@@ -430,6 +519,8 @@ void PPPM::setup()
     per = i - nz_pppm*(2*i/nz_pppm);
     fkz[i] = unitkz*per;
   }
+
+    fprintf(out_pppm_setup_flags, "%20s %20f\n", "per", per);
 
   // virial coefficients
 
@@ -461,6 +552,10 @@ void PPPM::setup()
     }
   }
 
+    fprintf(out_pppm_setup_flags, "%20s %20f\n", "sqk", sqk);
+    fprintf(out_pppm_setup_flags, "%20s %20f\n", "vterm", vterm);
+    fprintf(out_pppm_setup_flags, "%20s %20d\n\n", "differentiation_flag", differentiation_flag);
+fclose(out_pppm_setup_flags);
   if (differentiation_flag == 1) compute_gf_ad();
   else compute_gf_ik();
 }
@@ -596,11 +691,21 @@ void PPPM::compute(int eflag, int vflag)
   // set energy/virial flags
   // invoke allocate_peratom() if needed for first time
 
+    FILE *out_pppm_compute_flags = fopen("pppm_compute_flags", "a");
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "eflag", eflag);
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "vflag", vflag);
+
   ev_init(eflag,vflag);
+
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "evflag_atom", evflag_atom);
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "peratom_allocate_flag", peratom_allocate_flag);
 
   if (evflag_atom && !peratom_allocate_flag) allocate_peratom();
 
   // if atom count has changed, update qsum and qsqsum
+
+    fprintf(out_pppm_compute_flags, "%20s %20ld\n", "evflag_atom", atom->natoms);
+    fprintf(out_pppm_compute_flags, "%20s %20ld\n", "pnatoms_original", natoms_original);
 
   if (atom->natoms != natoms_original) {
     qsum_qsq();
@@ -609,9 +714,20 @@ void PPPM::compute(int eflag, int vflag)
 
   // return if there are no charges
 
+    fprintf(out_pppm_compute_flags, "%20s %20f\n", "qsqsum", qsqsum);
+
   if (qsqsum == 0.0) return;
 
   // convert atoms from box to lamda coords
+
+    fprintf(out_pppm_compute_flags, "%20s %20f\n", "domain->boxlo[1]", domain->boxlo[1]);
+    fprintf(out_pppm_compute_flags, "%20s %20f\n", "domain->boxlo[2]", domain->boxlo[2]);
+    fprintf(out_pppm_compute_flags, "%20s %20f\n", "domain->boxlo[3]", domain->boxlo[3]);
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "atom->nlocal", atom->nlocal);
+    fprintf(out_pppm_compute_flags, "%20s %20f\n", "domain->boxlo_lamda[1]", domain->boxlo_lamda[1]);
+    fprintf(out_pppm_compute_flags, "%20s %20f\n", "domain->boxlo_lamda[2]", domain->boxlo_lamda[2]);
+    fprintf(out_pppm_compute_flags, "%20s %20f\n", "domain->boxlo_lamda[3]", domain->boxlo_lamda[3]);
+
 
   if (triclinic == 0) boxlo = domain->boxlo;
   else {
@@ -620,6 +736,9 @@ void PPPM::compute(int eflag, int vflag)
   }
 
   // extend size of per-atom arrays if necessary
+
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "atom->nmax", atom->nmax);
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "nmax", nmax);
 
   if (atom->nmax > nmax) {
     memory->destroy(part2grid);
@@ -651,6 +770,8 @@ void PPPM::compute(int eflag, int vflag)
   // all procs communicate E-field values
   // to fill ghost cells surrounding their 3d bricks
 
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "differentiation_flag", differentiation_flag);
+
   if (differentiation_flag == 1)
     gc->forward_comm_kspace(this,1,sizeof(FFT_SCALAR),FORWARD_AD,
                             gc_buf1,gc_buf2,MPI_FFT_SCALAR);
@@ -659,6 +780,8 @@ void PPPM::compute(int eflag, int vflag)
                             gc_buf1,gc_buf2,MPI_FFT_SCALAR);
 
   // extra per-atom energy/virial communication
+
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "evflag_atom", evflag_atom);
 
   if (evflag_atom) {
     if (differentiation_flag == 1 && vflag_atom)
@@ -681,6 +804,8 @@ void PPPM::compute(int eflag, int vflag)
 
   const double qscale = qqrd2e * scale;
 
+    fprintf(out_pppm_compute_flags, "%20s %20f\n", "qscale", qscale);
+
   if (eflag_global) {
     double energy_all;
     MPI_Allreduce(&energy,&energy_all,1,MPI_DOUBLE,MPI_SUM,world);
@@ -694,6 +819,8 @@ void PPPM::compute(int eflag, int vflag)
 
   // sum global virial across procs
 
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "vflag_global", vflag_global);
+
   if (vflag_global) {
     double virial_all[6];
     MPI_Allreduce(virial,virial_all,6,MPI_DOUBLE,MPI_SUM,world);
@@ -703,6 +830,8 @@ void PPPM::compute(int eflag, int vflag)
   // per-atom energy/virial
   // energy includes self-energy correction
   // ntotal accounts for TIP4P tallying eatom/vatom for ghost atoms
+
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "evflag_atom", evflag_atom);
 
   if (evflag_atom) {
     double *q = atom->q;
@@ -720,6 +849,8 @@ void PPPM::compute(int eflag, int vflag)
       for (i = nlocal; i < ntotal; i++) eatom[i] *= 0.5*qscale;
     }
 
+      fprintf(out_pppm_compute_flags, "%20s %20d\n", "vflag_atom", vflag_atom);
+
     if (vflag_atom) {
       for (i = 0; i < ntotal; i++)
         for (j = 0; j < 6; j++) vatom[i][j] *= 0.5*qscale;
@@ -728,11 +859,29 @@ void PPPM::compute(int eflag, int vflag)
 
   // 2d slab correction
 
+    fprintf(out_pppm_compute_flags, "%20s %20d\n", "slabflag", slabflag);
+
   if (slabflag == 1) slabcorr();
 
   // convert atoms back from lamda to box coords
 
+    fprintf(out_pppm_compute_flags, "%20s %20d\n\n", "triclinic", triclinic);
+fclose(out_pppm_compute_flags);
   if (triclinic) domain->lamda2x(atom->nlocal);
+
+   // FILE *out_pppm_per_atom_energy = fopen("pppm_per_atom_energy", "a");  //this gives problem Segmentation fault (core dumped) when command compute pe/atom not use in input filr
+
+   // int nlocal = atom->nlocal;
+   // int *tag = atom -> tag;
+
+   // fprintf(out_pppm_per_atom_energy, "%20s %20d\n", "nlocal" , nlocal);
+
+   // for (int i = 0; i < nlocal; i++) {
+   //     fprintf(out_pppm_per_atom_energy, "%20d %20f\n", tag[i], eatom[i]);
+   // }
+
+    //fprintf(out_pppm_per_atom_energy, "\n");
+    //fclose(out_pppm_per_atom_energy);
 }
 
 /* ----------------------------------------------------------------------

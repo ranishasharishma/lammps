@@ -266,6 +266,7 @@ void FixConp::setup(int vflag)
     } else {
       a_read();
     }
+    pot_wall_wall();
     runstage = 1;
     }
 
@@ -1339,5 +1340,61 @@ void FixConp::coeffs()
       }
     }
   }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConp::pot_wall_wall()
+{
+
+    int *tag = atom->tag;
+    int nlocal = atom -> nlocal;
+
+    PPPM obj_kspace= PPPM(lmp);
+    obj_kspace.accuracy_relative = force->kspace->accuracy_relative;
+    obj_kspace.slabflag = force->kspace->slabflag;
+    obj_kspace.slab_volfactor = force->kspace->slab_volfactor;
+    obj_kspace.init();
+    obj_kspace.setup();
+    obj_kspace.compute(3,1);
+    double *pot_kspace = obj_kspace.eatom;
+    FILE *out_pot_w_w_kspace = fopen("potential_w_w_kspace", "a");
+
+    for (int i = 0; i < nlocal; i++) {
+       fprintf (out_pot_w_w_kspace,"%20d %20f\n", tag[i], pot_kspace[i] );
+    }
+    fclose(out_pot_w_w_kspace);
+
+
+    //force->pair->compute(3,1);
+    //force->kspace->init();  // using init does not give the correct per atom potential in output lammps
+    //force->kspace->compute(3,1);        //used eflag = 3 and vflag =1, as these were the values for the simulations for which we calculated per atom potentials
+    //information from Lammps mailing list:     eflag != 0 means: compute energy contributions in this step
+    //                                          vflag != 0 means: compute virial contributions in this step //
+    //                                          the exact value indicates whether per atom or total contributions are supposed to be computed.
+
+    //double *e_per_atom_1 = force->pair->eatom;
+    //double *e_per_atom_2 = force->kspace->eatom;                      //in pppm.cpp: if (eflag_atom) eatom[i] += q[i]*u;
+    //FILE *out_pot_w_w = fopen("potential_w_w", "w");
+    //int* tag = atom->tag;                                           //global id of particles, consistent with how they are indicated in the input file
+    //int nlocal = atom->nlocal;                                      //nlocal is number of particles on the processor, when run in serial nlocal is the total of all particles
+
+    //for (int i = 0; i < nlocal; i++) {
+    //    fprintf (out_pot_w_w,"%20d",tag[i]);
+    //}
+
+    //fprintf (out_pot_w_w,"\n");
+
+    //for (int i = 0; i < nlocal; i++) {
+       // fprintf (out_pot_w_w,"%20f",e_per_atom_1[i]);
+    //}
+
+    //fprintf (out_pot_w_w,"\n");
+
+    //for (int i = 0; i < nlocal; i++) {
+     //   fprintf (out_pot_w_w,"%20f",e_per_atom_2[i]);
+    //}
+
+
 }
 
