@@ -267,6 +267,8 @@ void FixConp::setup(int vflag)
       a_read();
     }
     pot_wall_wall();
+  //  pot_wall_wall_2();
+  //pot_wall_wall_3();
     runstage = 1;
     }
 
@@ -299,8 +301,10 @@ void FixConp::pre_force(int vflag)
         }
       }
     }
+      //pot_wall_wall();
     equation_solve();
     update_charge();
+
   }
   //force_cal(vflag);		RS on 22-04-2021: commented out to remove forces due to erfc(eta*rij) terms and the added energy (eta/sqrt(2pi))*sum(Q_i^2), later in the code the function force_cal is also commented out.
 }
@@ -1349,6 +1353,37 @@ void FixConp::pot_wall_wall()
 
     int *tag = atom->tag;
     int nlocal = atom -> nlocal;
+    double *q = atom->q;
+    int *type = atom->type;
+
+    //determine the size of q
+    int size_q = 1;
+    while (tag[size_q-1]!=0){
+        size_q++;
+    }
+
+    //make array with charges used for the potential calculation
+    double q_for_cal[size_q];
+    int a = 0;
+    for (int i = 0; i < nlocal; i++) {
+        if (electrode_check(i) == 1) {
+            q_for_cal[tag[i]] = -0.001;
+        } else if (electrode_check(i) == -1){
+            q_for_cal[tag[i]] = 0.001;
+        } else {
+            q_for_cal[tag[i]] = 0;
+        }
+        a++;
+    }
+
+    //make array that has the same size of the array q
+    double q_for_cal_2[size_q];
+    for (int i = 0; i < size_q; i++) {
+        q_for_cal_2[i] = q_for_cal[tag[i]];
+
+    }
+
+    atom->q = &q_for_cal_2[0];  //set the charges to the values required for the calculation
 
     PPPM obj_kspace= PPPM(lmp);
     obj_kspace.accuracy_relative = force->kspace->accuracy_relative;
@@ -1356,45 +1391,52 @@ void FixConp::pot_wall_wall()
     obj_kspace.slab_volfactor = force->kspace->slab_volfactor;
     obj_kspace.init();
     obj_kspace.setup();
-    obj_kspace.compute(3,1);
-    double *pot_kspace = obj_kspace.eatom;
-    FILE *out_pot_w_w_kspace = fopen("potential_w_w_kspace", "a");
+    obj_kspace.compute(3,1);    //used eflag = 3 and vflag =1, as these were the values for the simulations for which we calculated per atom potentials
+    //information from Lammps mailing list:     eflag != 0 means: compute energy contributions in this step
+    //                                          vflag != 0 means: compute virial contributions in this step //
+    //                                          the exact value indicates whether per atom or total contributions are supposed to be computed.
 
+    double pot_kspace[nlocal];
+    for (int i = 0; i < nlocal; i++) {
+        pot_kspace[i] = *(obj_kspace.eatom +i);
+    }
+
+    FILE *out_pot_w_w_kspace = fopen("potential_w_w_kspace", "a");
     for (int i = 0; i < nlocal; i++) {
        fprintf (out_pot_w_w_kspace,"%20d %20f\n", tag[i], pot_kspace[i] );
     }
     fclose(out_pot_w_w_kspace);
 
+    char *arg_coeff[2] = { "*", "*"};
+    /// \todo RS: this line need to be considered carefully
+    char *arg_settings[1] = { "12.0" };
 
-    //force->pair->compute(3,1);
-    //force->kspace->init();  // using init does not give the correct per atom potential in output lammps
-    //force->kspace->compute(3,1);        //used eflag = 3 and vflag =1, as these were the values for the simulations for which we calculated per atom potentials
-    //information from Lammps mailing list:     eflag != 0 means: compute energy contributions in this step
-    //                                          vflag != 0 means: compute virial contributions in this step //
-    //                                          the exact value indicates whether per atom or total contributions are supposed to be computed.
+    PairCoulLong obj_CoulLong = PairCoulLong(lmp);
+    obj_CoulLong.coeff(2,arg_coeff);                //sets pair_coeff command arguments
+    obj_CoulLong.settings(1,arg_settings);          //sets cut_coul
+    obj_CoulLong.list = force->pair->list;          //since obj_CoulLong.list was not pointing to the same address as force->pair->list
+    double g_ewald_0 = force->kspace->g_ewald;
+    force->kspace->g_ewald = obj_kspace.g_ewald;    //this was necessary for getting the correct values of etable and detable
 
-    //double *e_per_atom_1 = force->pair->eatom;
-    //double *e_per_atom_2 = force->kspace->eatom;                      //in pppm.cpp: if (eflag_atom) eatom[i] += q[i]*u;
-    //FILE *out_pot_w_w = fopen("potential_w_w", "w");
-    //int* tag = atom->tag;                                           //global id of particles, consistent with how they are indicated in the input file
-    //int nlocal = atom->nlocal;                                      //nlocal is number of particles on the processor, when run in serial nlocal is the total of all particles
+    obj_CoulLong.init();
+    obj_CoulLong.setup();
+    obj_CoulLong.compute(3,1);
 
-    //for (int i = 0; i < nlocal; i++) {
-    //    fprintf (out_pot_w_w,"%20d",tag[i]);
-    //}
 
-    //fprintf (out_pot_w_w,"\n");
+    double pot_CoulLong[nlocal];
+    for (int i = 0; i < nlocal; i++) {
+        pot_CoulLong[i] = *(obj_CoulLong.eatom +i);
+   }
 
-    //for (int i = 0; i < nlocal; i++) {
-       // fprintf (out_pot_w_w,"%20f",e_per_atom_1[i]);
-    //}
+    FILE *out_pot_w_w_CoulLong = fopen("potential_w_w_CoulLong", "a");
+    for (int i = 0; i < nlocal; i++) {
+      fprintf (out_pot_w_w_CoulLong,"%20f\n", pot_CoulLong[i]);
+    }
+    fclose(out_pot_w_w_CoulLong);
 
-    //fprintf (out_pot_w_w,"\n");
-
-    //for (int i = 0; i < nlocal; i++) {
-     //   fprintf (out_pot_w_w,"%20f",e_per_atom_2[i]);
-    //}
-
+    //reset the values set for the calculation
+    atom->q = q;
+    force->kspace->g_ewald = g_ewald_0;
 
 }
 

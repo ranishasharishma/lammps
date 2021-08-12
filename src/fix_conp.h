@@ -29,6 +29,11 @@ FixStyle(conp,FixConp)
 #include "pppm.h"
 #include "pair_lj_cut_coul_long.h"
 #include "pair.h"
+#include "pair_coul_long.h"
+#include "input.h"
+#include "comm.h"
+#include "neighbor.h"
+
 namespace LAMMPS_NS {
 
 class FixConp : public Fix {
@@ -52,6 +57,9 @@ class FixConp : public Fix {
   void inv();
   void coul_cal(int, double *,int *);
   void pot_wall_wall();
+  inline int sbmask(int j) const {      //RS: copied from pair.h
+      return j >> SBBITS & 3;
+  }
 
  private:
   int me,runstage;
@@ -86,9 +94,8 @@ class FixConp : public Fix {
   int *tag2eleall,*eleall2tag,*curr_tag2eleall,*ele2tag;
 };
 
+};
 
-
-}
 
 #endif
 #endif
