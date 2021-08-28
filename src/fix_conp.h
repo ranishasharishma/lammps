@@ -27,12 +27,15 @@ FixStyle(conp,FixConp)
 
 #include "fix.h"
 #include "pppm.h"
+#include "ewald.h"
 #include "pair_lj_cut_coul_long.h"
 #include "pair.h"
 #include "pair_coul_long.h"
 #include "input.h"
 #include "comm.h"
 #include "neighbor.h"
+#include "memory.h"
+
 
 namespace LAMMPS_NS {
 
@@ -57,9 +60,8 @@ class FixConp : public Fix {
   void inv();
   void coul_cal(int, double *,int *);
   void pot_wall_wall();
-  inline int sbmask(int j) const {      //RS: copied from pair.h
-      return j >> SBBITS & 3;
-  }
+  void pot_wall_wall_2();
+  void pot_wall_ions();
 
  private:
   int me,runstage;
@@ -92,6 +94,16 @@ class FixConp : public Fix {
   double *eleallq;
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*curr_tag2eleall,*ele2tag;
+  double *Psi_w_w;
+  double *Psi_w_wi;
+  double *Psi_w_i;
+  double *B_CP4M2;
+  const double q_L = -0.001;    //charges used for wall particles for the calculation of the potential on the wall particles due to the ions
+  const double q_R = 0.001;
+  const double conv = 4186.8/(6.02214e23*1.60218e-19);
+  PPPM obj_kspace = PPPM(lmp);
+  //Ewald obj_kspace = Ewald(lmp);
+  PairCoulLong obj_CoulLong = PairCoulLong(lmp);  //declaration of an instance of the class PairCoulLong
 };
 
 };

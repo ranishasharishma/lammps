@@ -110,6 +110,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   csk = snk = NULL;
   aaa_all = NULL;
   bbb_all = NULL;
+  Psi_w_w = NULL;
+  Psi_w_i = NULL;
+  Psi_w_wi = NULL;
   tag2eleall = eleall2tag = curr_tag2eleall = ele2tag = NULL;
   Btime = cgtime = Ctime = Ktime = 0;
   runstage = 0; //after operation
@@ -137,6 +140,10 @@ FixConp::~FixConp()
   delete [] sfacim;
   delete [] sfacrl_all;
   delete [] sfacim_all;
+  delete [] Psi_w_w;
+  delete [] Psi_w_i;
+  delete [] Psi_w_wi;
+  delete [] B_CP4M2;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -266,9 +273,14 @@ void FixConp::setup(int vflag)
     } else {
       a_read();
     }
+
+    Psi_w_w = new double[elenum_all];
+    Psi_w_wi = new double[elenum_all];
+    Psi_w_i = new double[elenum_all];
+    B_CP4M2 = new double[elenum_all];
+
     pot_wall_wall();
-  //  pot_wall_wall_2();
-  //pot_wall_wall_3();
+    //pot_wall_wall_2();
     runstage = 1;
     }
 
@@ -281,7 +293,7 @@ void FixConp::pre_force(int vflag)
   if(update->ntimestep % everynum == 0) {
     if (strstr(update->integrate_style,"verlet")) { //not respa
       Btime1 = MPI_Wtime();
-      b_cal();
+      //b_cal();
       Btime2 = MPI_Wtime();
       Btime += Btime2-Btime1;
       if (update->laststep == update->ntimestep) {
@@ -301,7 +313,10 @@ void FixConp::pre_force(int vflag)
         }
       }
     }
-      //pot_wall_wall();
+      //Psi_w_wi = new double[elenum_all];
+      //Psi_w_i = new double[elenum_all];
+
+    pot_wall_ions();
     equation_solve();
     update_charge();
 
@@ -1028,6 +1043,7 @@ void FixConp::update_charge()
   int nall = atom->nlocal+atom->nghost;
   double *q = atom->q;
   double **x = atom->x;
+ // FILE *out_Bq_CPM = fopen("Bq_CPM", "a");
   for (i = 0; i < nall; ++i) {
     if (electrode_check(i)) {
       tagi = tag[i];
@@ -1038,12 +1054,15 @@ void FixConp::update_charge()
         eleallq_i = 0.0;
         for (j = 0; j < elenum_all; j++) {
           idx1d=elealli*elenum_all+j;
-          eleallq_i += aaa_all[idx1d]*bbb_all[j];
+          //eleallq_i += aaa_all[idx1d]*bbb_all[j];
+            eleallq_i += aaa_all[idx1d]*B_CP4M2[j]; //RS: changed on 27-08-2021 use B by PPPM
+          //fprintf(out_Bq_CPM, "%i %i %20.10f\n", tagi, elealli, bbb_all[j]);
         }
         q[i] = eleallq_i;
       } 
     }
   }
+    //fclose(out_Bq_CPM);
 }
 /* ---------------------------------------------------------------------- */
 //void FixConp::force_cal(int vflag)		//RS on 22-04-2021: commented out force_cal function, in which foces due to erfc(eta*rij) and an extra energy term due to eta were calculated
@@ -1350,26 +1369,41 @@ void FixConp::coeffs()
 
 void FixConp::pot_wall_wall()
 {
+    //if (me == 0) utils::logmesg(lmp,"pot_wall_wall() start ...\n");
 
     int *tag = atom->tag;
     int nlocal = atom -> nlocal;
     double *q = atom->q;
-    int *type = atom->type;
+    double **f = atom->f;
 
-    //determine the size of q
+    //set settings of the kspace object declared in the CPM code to those of the the kspace object used by Lammps
+    obj_kspace.accuracy_relative = force->kspace->accuracy_relative;
+    obj_kspace.slabflag = force->kspace->slabflag;
+    obj_kspace.slab_volfactor = force->kspace->slab_volfactor;
+
+    obj_kspace.init();
+    obj_kspace.setup();
+
+    //determine the size of q with the charges, this is larger than the number of particles and the charges are repeating
+    //
     int size_q = 1;
     while (tag[size_q-1]!=0){
         size_q++;
     }
 
-    //make array with charges used for the potential calculation
+    //make array with charges used for the calculation of the potential on the wall particles due to the wall particles
+    //note the charges of the wall particles are set to the constant q_L and q_R, which are not the real charges in the simulation
+    //doing so is convenient because we are interested in the potentials on the wall particles due to the ions, which are
+    //calculated by subtracting the potentials on the wall particles due to the wall particles from the potentials on the
+    //wall particles due to both the ions and wall particles, i.e., the charges of the wall particles are not relevant
+    //this approach allows us to calculate the potentials on the wall particles due to the wall particles only once
     double q_for_cal[size_q];
     int a = 0;
     for (int i = 0; i < nlocal; i++) {
         if (electrode_check(i) == 1) {
-            q_for_cal[tag[i]] = -0.001;
+            q_for_cal[tag[i]] = q_L;            //the elements in the array are sorted by the global index of the atoms
         } else if (electrode_check(i) == -1){
-            q_for_cal[tag[i]] = 0.001;
+            q_for_cal[tag[i]] = q_R;
         } else {
             q_for_cal[tag[i]] = 0;
         }
@@ -1379,64 +1413,232 @@ void FixConp::pot_wall_wall()
     //make array that has the same size of the array q
     double q_for_cal_2[size_q];
     for (int i = 0; i < size_q; i++) {
-        q_for_cal_2[i] = q_for_cal[tag[i]];
+        q_for_cal_2[i] = q_for_cal[tag[i]];     //the elements are sorted by the local index of the processor
 
     }
 
     atom->q = &q_for_cal_2[0];  //set the charges to the values required for the calculation
 
-    PPPM obj_kspace= PPPM(lmp);
-    obj_kspace.accuracy_relative = force->kspace->accuracy_relative;
-    obj_kspace.slabflag = force->kspace->slabflag;
-    obj_kspace.slab_volfactor = force->kspace->slab_volfactor;
-    obj_kspace.init();
-    obj_kspace.setup();
+    //Make pointer to a pointer for the forces (atom->f) point to addresses with zero values.
+    //At the end of the function, atom->f is reset to point at the "real" addresses again.
+    //This is done because the compute() function changes the forces, which should not happen since we only want to
+    //calculate the potentials.
+    double **f_for_cal;
+    f_for_cal = new double*[nlocal];
+
+    for (int i = 0; i < nlocal; i++) {
+        f_for_cal[i] = new double[3] ;
+    }
+
+    for (int i = 0; i < nlocal; i++) {
+        f_for_cal[i][0] = 0;
+        f_for_cal[i][1] = 0;
+        f_for_cal[i][2] = 0;
+    }
+
+    atom->f = f_for_cal;
+
+
+    obj_kspace.compute(3,1);    //calculates the kspace potentials, used eflag = 3 and vflag =1, as these were the values for the simulations for which we calculated per atom potentials
+
+    //settings for the calculation of the short range potentials
+    char *arg_coeff[2] = { "*", "*"};       //to use "pair_coeff * *"
+
+    //extract the global Coulombic cutoff value specified in the pair_style command in the Lammps input, transform it
+    //into a string and pass it in an array of strings, where the number of arrays is 1. This is done to make it
+    //compatible with the input type of obj_CoulLong.settings
+    int itmp;
+    double cut_coul = *(double *) force->pair->extract("cut_coul",itmp);
+    char string[16];
+    sprintf(string,"%f",cut_coul);
+    char *arg_settings[1] = {string};
+
+    obj_CoulLong.coeff(2,arg_coeff);                //sets pair_coeff arguments
+    obj_CoulLong.settings(1,arg_settings);          //sets second argument to global Coulombic cutoff
+    obj_CoulLong.list = force->pair->list;          //since obj_CoulLong.list was not pointing to the same address as force->pair->list
+
+    obj_CoulLong.init();
+    obj_CoulLong.setup();
+    obj_CoulLong.compute(3,1);                      //To calculate the short range potentials
+
+    //Adding up the kspace and short range potentials on the wall particles due to the wall particles and store them in
+    // the array Psi_w_w.
+    int cntr = 0;
+    int tag_Psi_w_w[elenum_all];
+    for (int i = 0; i < nlocal; i++) {
+            if ( (electrode_check(i) == 1) || (electrode_check(i) == -1)) {
+                Psi_w_w[cntr] = *(obj_kspace.eatom +i) + *(obj_CoulLong.eatom +i);
+                tag_Psi_w_w[cntr] = tag[i];
+                cntr++;
+            }
+    }
+
+    //printing Psi_w_w, also check whether tag_Psi_w_w and eleall2tag match
+    //FILE *out_Psi_w_w = fopen("Psi_w_w", "a");
+    //for (int i = 0; i < elenum_all; i++) {
+    //    fprintf(out_Psi_w_w,"%20d %20d %20d %20f\n", i, tag_Psi_w_w[i], eleall2tag[i], Psi_w_w[i]);
+    //}
+    //fclose(out_Psi_w_w);
+
+    //reset the values set for the calculation
+    atom->q = q;
+    atom->f = f;
+
+    delete f_for_cal;
+
+   // if (me == 0) utils::logmesg(lmp,"pot_wall_wall() end...\n");
+
+}
+
+void FixConp::pot_wall_ions()
+{
+    //This function calculates the potential on the wall particles due to both the ions and wall particles
+    //At the end of the function the potential on the wall particles due to the ions are calculated by subtracting the
+    //potentials on the wall particles due to the wall particles from the potentials on the wall particles due to both
+    //the ions and wall particles.
+
+    //if (me == 0) utils::logmesg(lmp,"pot_wall_ions() start...\n");
+
+    int *tag = atom->tag;
+    int nlocal = atom -> nlocal;
+    double *q = atom->q;
+    double **f = atom->f;
+
+    //determine the size of q
+    int size_q = 0;
+    while (tag[size_q]!=0){
+        size_q++;
+    }
+
+    double q_for_cal[size_q];
+    int a = 0;
+    for (int i = 0; i < nlocal; i++) {
+        if (electrode_check(i) == 1) {
+            q_for_cal[tag[i]] = q_L;
+        }
+        else if (electrode_check(i) == -1){
+            q_for_cal[tag[i]] = q_R;
+        }
+        else{
+            q_for_cal[tag[i]] = q[i];       //the charges of the ions are set to their real values
+        }
+        a++;
+    }
+
+    double q_for_cal_2[size_q];
+    for (int i = 0; i < size_q; i++) {
+        q_for_cal_2[i] = q_for_cal[tag[i]];
+
+    }
+
+    atom->q = &q_for_cal_2[0];
+
+   /* double** f_for_cal;
+    f_for_cal = new double[nlocal][3];
+    for (int i = 0; i < nlocal; i++) {
+        f_for_cal[i][0] = 0;
+        f_for_cal[i][1] = 0;
+        f_for_cal[i][2] = 0;
+    }
+
+    //double* p_f_for_cal = &f_for_cal[0][0];
+
+    //atom->f = &p_f_for_cal;
+
+    atom->f = f_for_cal;       //error: cannot convert ‘double (*)[nlocal][3]’ to ‘double**’ in assignment
+
+    //atom->f = &f_for_cal[0];    //error: cannot convert ‘double (*)[nlocal][3]’ to ‘double**’ in assignment
+
+
+    //for(int i = 0; i < nlocal; i++){  //gives Segmentation fault (core dumped)
+    //    atom->f[i] = f_for_cal[i];
+    //}
+   */
+
+    double **f_for_cal;
+    f_for_cal = new double*[nlocal];
+
+    for (int i = 0; i < nlocal; i++) {
+        f_for_cal[i] = new double[3] ;
+    }
+
+    for (int i = 0; i < nlocal; i++) {
+            f_for_cal[i][0] = 0;
+            f_for_cal[i][1] = 0;
+            f_for_cal[i][2] = 0;
+    }
+
+
+    atom->f = f_for_cal;        //makes atom->f point to dummy array
+
     obj_kspace.compute(3,1);    //used eflag = 3 and vflag =1, as these were the values for the simulations for which we calculated per atom potentials
     //information from Lammps mailing list:     eflag != 0 means: compute energy contributions in this step
     //                                          vflag != 0 means: compute virial contributions in this step //
     //                                          the exact value indicates whether per atom or total contributions are supposed to be computed.
 
-    double pot_kspace[nlocal];
-    for (int i = 0; i < nlocal; i++) {
-        pot_kspace[i] = *(obj_kspace.eatom +i);
-    }
-
-    FILE *out_pot_w_w_kspace = fopen("potential_w_w_kspace", "a");
-    for (int i = 0; i < nlocal; i++) {
-       fprintf (out_pot_w_w_kspace,"%20d %20f\n", tag[i], pot_kspace[i] );
-    }
-    fclose(out_pot_w_w_kspace);
-
-    char *arg_coeff[2] = { "*", "*"};
-    /// \todo RS: this line need to be considered carefully
-    char *arg_settings[1] = { "12.0" };
-
-    PairCoulLong obj_CoulLong = PairCoulLong(lmp);
-    obj_CoulLong.coeff(2,arg_coeff);                //sets pair_coeff command arguments
-    obj_CoulLong.settings(1,arg_settings);          //sets cut_coul
-    obj_CoulLong.list = force->pair->list;          //since obj_CoulLong.list was not pointing to the same address as force->pair->list
-    double g_ewald_0 = force->kspace->g_ewald;
-    force->kspace->g_ewald = obj_kspace.g_ewald;    //this was necessary for getting the correct values of etable and detable
-
-    obj_CoulLong.init();
-    obj_CoulLong.setup();
     obj_CoulLong.compute(3,1);
 
-
-    double pot_CoulLong[nlocal];
+    int cntr = 0;
+    int tag_Psi_w_wi[elenum_all];
+    int i_saved[elenum];            //save i, so the function electrode_check() can be used to determine if it concerns the left or right wall
     for (int i = 0; i < nlocal; i++) {
-        pot_CoulLong[i] = *(obj_CoulLong.eatom +i);
-   }
+        if ( (electrode_check(i) == 1) || (electrode_check(i) == -1)) {
+            Psi_w_wi[cntr] = *(obj_kspace.eatom +i) + *(obj_CoulLong.eatom +i);
+            tag_Psi_w_wi[cntr] = tag[i];
+            i_saved[cntr] = i;
+            cntr++;
 
-    FILE *out_pot_w_w_CoulLong = fopen("potential_w_w_CoulLong", "a");
-    for (int i = 0; i < nlocal; i++) {
-      fprintf (out_pot_w_w_CoulLong,"%20f\n", pot_CoulLong[i]);
+        }
     }
-    fclose(out_pot_w_w_CoulLong);
+
+    //FILE *out_Psi_w_wi = fopen("Psi_w_wi", "a");
+    //for (int i = 0; i < elenum_all; i++) {
+    //    fprintf (out_Psi_w_wi,"%20d %20d %20d %20f\n", i, tag_Psi_w_wi[i], eleall2tag[i], Psi_w_wi[i]);
+    //}
+    //fprintf(out_Psi_w_wi,"\n");
+    //fclose(out_Psi_w_wi);
+
+
+    for (int i = 0; i < elenum_all; i++) {
+        Psi_w_i[i] = Psi_w_wi[i] - Psi_w_w[i];
+        if (electrode_check(i_saved[i]) == 1){
+            B_CP4M2[i] = conv*Psi_w_i[i]/q_L;   //potential on the left wall particles
+        }
+        else {
+            B_CP4M2[i] = conv*Psi_w_i[i]/q_R;   //potential on the right wall particles
+        }
+    }
+
+   // FILE *out_Psi_w_i = fopen("Psi_w_i", "a");
+   // for (int i = 0; i < elenum; i++) {
+   //     fprintf (out_Psi_w_i,"%20d %20f %20f\n", eleall2tag[i], Psi_w_i[i], B_CP4M2[i]);
+   // }
+   // fprintf(out_Psi_w_i,"\n");
+   // fclose(out_Psi_w_i);
+
+
+
+
 
     //reset the values set for the calculation
     atom->q = q;
-    force->kspace->g_ewald = g_ewald_0;
+
+    atom->f = f;    //make atom->f point at the real force array
+
+    //for (int i = 0; i < nlocal; i++) {
+      //  delete[] f_for_cal[i] ;
+    //}
+
+    //delete f_for_cal;
+
+    //for (int i = 0; i < nlocal; i++) {
+    //    f[i][0] = 0;
+    //    f[i][1] = 0;
+     //   f[i][2] = 0;
+    //}
+
+    //if (me == 0) utils::logmesg(lmp,"pot_wall_ions() end...\n");
 
 }
+
 
