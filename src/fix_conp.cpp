@@ -169,7 +169,7 @@ void FixConp::setup(int vflag)
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
   double accuracy = force->kspace->accuracy;
-  
+
   int i;
   double qsqsum = 0.0;
   for (i = 0; i < atom->nlocal; i++) {
@@ -238,10 +238,10 @@ void FixConp::setup(int vflag)
 //copied from ewald.cpp end
 
   int nmax = atom->nmax;
-  double evscale = 0.069447;
+  //double evscale = 0.069447; //RS: now declared as global constant, so it can be used in other functions
   vL *= evscale;
   vR *= evscale;
-  
+
   memory->create3d_offset(cs,-kmax,kmax,3,nmax,"fixconp:cs");
   memory->create3d_offset(sn,-kmax,kmax,3,nmax,"fixconp:sn");
   sfacrl = new double[kmax3d];
@@ -257,7 +257,7 @@ void FixConp::setup(int vflag)
       if (electrode_check(i)) ++elenum;
     }
     MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
-    
+
     eleall2tag = new int[elenum_all];
     aaa_all = new double[elenum_all*elenum_all];
     bbb_all = new double[elenum_all];
@@ -290,10 +290,30 @@ void FixConp::setup(int vflag)
 
 void FixConp::pre_force(int vflag)
 {
+    //RS: for printing start
+    double *q = atom->q;
+    int *tag = atom-> tag;
+    int nlocal = atom->nlocal;
+    //RS: for printing end
+
   if(update->ntimestep % everynum == 0) {
     if (strstr(update->integrate_style,"verlet")) { //not respa
       Btime1 = MPI_Wtime();
+
+      //FILE *out_q_before_b_cal = fopen("q_before_b_cal", "a");
+      //for (int i = 0; i < nlocal; i++) {
+      //    fprintf(out_q_before_b_cal,"%20d %20f\n", tag[i], q[i]);
+      //}
+      //fclose(out_q_before_b_cal);
       //b_cal();
+      pot_wall_ions();
+      //FILE *out_q_after_b_cal = fopen("q_after_b_cal", "a");
+      //for (int i = 0; i < nlocal; i++) {
+      //    fprintf(out_q_after_b_cal,"%20d %20f\n", tag[i], q[i]);
+      //}
+      //fclose(out_q_after_b_cal);
+
+
       Btime2 = MPI_Wtime();
       Btime += Btime2-Btime1;
       if (update->laststep == update->ntimestep) {
@@ -316,9 +336,21 @@ void FixConp::pre_force(int vflag)
       //Psi_w_wi = new double[elenum_all];
       //Psi_w_i = new double[elenum_all];
 
-    pot_wall_ions();
     equation_solve();
+
+      //FILE *out_q_before_update_charge = fopen("q_before_update_charge", "a");
+      //for (int i = 0; i < nlocal; i++) {
+      //    fprintf(out_q_before_update_charge,"%20d %20f\n", tag[i], q[i]);
+      //}
+      //fclose(out_q_before_update_charge);
+
     update_charge();
+
+      //FILE *out_q_after_update_charge = fopen("q_after_update_charge", "a");
+      //for (int i = 0; i < nlocal; i++) {
+          //fprintf(out_q_after_update_charge,"%20d %20f\n", tag[i], q[i]);
+      //}
+      //fclose(out_q_after_update_charge);
 
   }
   //force_cal(vflag);		RS on 22-04-2021: commented out to remove forces due to erfc(eta*rij) terms and the added energy (eta/sqrt(2pi))*sum(Q_i^2), later in the code the function force_cal is also commented out.
@@ -388,7 +420,7 @@ void FixConp::b_cal()
       }
     }
   }
- 
+
   //elenum_list and displs for gathering ele tag list and bbb
   int nprocs = comm->nprocs;
   int elenum_list[nprocs];
@@ -538,7 +570,7 @@ void FixConp::a_cal()
 
   //gather tag,x and q
   double **x = atom->x;
-  
+
   double *elexyzlist = new double[3*elenum];
   double *elexyzlist_all = new double[3*elenum_all];
   j = 0;
@@ -613,13 +645,13 @@ void FixConp::a_cal()
     //aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
     }
   }
-  
+
   memory->destroy(eleallx);
   memory->destroy(csk);
   memory->destroy(snk);
 
   coul_cal(2,aaa,ele2tag);
-  
+
   int elenum_list3[nprocs];
   int displs3[nprocs];
   for (i = 0; i < nprocs; i++) {
@@ -702,7 +734,7 @@ void FixConp::sincos_a(double **eleallx)
   }
   memory->destroy3d_offset(csele,-kmax_created);
   memory->destroy3d_offset(snele,-kmax_created);
-} 
+}
 
 /*--------------------------------------------------------------*/
 void FixConp::sincos_b()
@@ -982,7 +1014,7 @@ void FixConp::inv()
     ipiv = NULL;
     delete [] work;
     work = NULL;
-  
+
     if (infosum != 0) error->all(FLERR,"Inversion failed!");
 
       /* RS: added code start */
@@ -1043,7 +1075,16 @@ void FixConp::update_charge()
   int nall = atom->nlocal+atom->nghost;
   double *q = atom->q;
   double **x = atom->x;
- // FILE *out_Bq_CPM = fopen("Bq_CPM", "a");
+  //FILE *out_Bq_CPM = fopen("Bq_CPM", "a");
+
+    //FILE *out_q_before_in_update_charge = fopen("q_before_in_update_charge", "a");
+    //for (int i = 0; i < nall; i++) {
+    //    fprintf(out_q_before_in_update_charge,"%20d %20f\n", tag[i], q[i]);
+    //}
+    //fclose(out_q_before_in_update_charge);
+
+    //FILE *out_bbb_CP4M2 = fopen("bbb_CP4M2", "a");
+    //FILE *out_aaa_all = fopen("aaa_all", "a");
   for (i = 0; i < nall; ++i) {
     if (electrode_check(i)) {
       tagi = tag[i];
@@ -1055,14 +1096,24 @@ void FixConp::update_charge()
         for (j = 0; j < elenum_all; j++) {
           idx1d=elealli*elenum_all+j;
           //eleallq_i += aaa_all[idx1d]*bbb_all[j];
-            eleallq_i += aaa_all[idx1d]*B_CP4M2[j]; //RS: changed on 27-08-2021 use B by PPPM
-          //fprintf(out_Bq_CPM, "%i %i %20.10f\n", tagi, elealli, bbb_all[j]);
+          eleallq_i += aaa_all[idx1d]*B_CP4M2[j]; //RS: changed on 27-08-2021 use B by PPPM
+          //fprintf(out_Bq_CPM, "%i %i %20.10f %20.10f\n", tagi, elealli, bbb_all[j], bbb_CP4M2[j]);
+            //fprintf(out_bbb_CP4M2, "%i %20.10f\n", tagi, bbb_CP4M2[j]);
+            //fprintf(out_aaa_all, "%20.10f\n", aaa_all[idx1d]);
         }
         q[i] = eleallq_i;
-      } 
+      }
     }
   }
     //fclose(out_Bq_CPM);
+    //fclose(out_bbb_CP4M2);
+    //fclose(out_aaa_all);
+
+    //FILE *out_q_after_in_update_charge = fopen("q_after_in_update_charge", "a");
+    //for (int i = 0; i < nall; i++) {
+    //    fprintf(out_q_after_in_update_charge,"%20d %20f\n", tag[i], q[i]);
+    //}
+    //fclose(out_q_after_in_update_charge);
 }
 /* ---------------------------------------------------------------------- */
 //void FixConp::force_cal(int vflag)		//RS on 22-04-2021: commented out force_cal function, in which foces due to erfc(eta*rij) and an extra energy term due to eta were calculated
@@ -1096,7 +1147,7 @@ void FixConp::coul_cal(int coulcalflag,double *m,int *ele2tag)
   double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
   double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
-  
+
   int inum = force->pair->list->inum;
   int nlocal = atom->nlocal;
   int newton_pair = force->newton_pair;
@@ -1106,7 +1157,7 @@ void FixConp::coul_cal(int coulcalflag,double *m,int *ele2tag)
   int *jlist;
   int *numneigh = force->pair->list->numneigh;
   int **firstneigh = force->pair->list->firstneigh;
-  
+
   double qqrd2e = force->qqrd2e;
   double **cutsq = force->pair->cutsq;
   int itmp;
@@ -1153,7 +1204,7 @@ void FixConp::coul_cal(int coulcalflag,double *m,int *ele2tag)
               //expm2 = exp(-etarij*etarij);
               //t = 1.0 / (1.0+EWALD_P*etarij);
               //erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-  
+
               //if (coulcalflag == 0) {					//RS on 22-04-2021: in force_cal, coulcalflag =0, since force_cal is removed also this part is removed
                // prefactor = qqrd2e*qtmp*q[j]/r;
                 //forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
@@ -1169,7 +1220,7 @@ void FixConp::coul_cal(int coulcalflag,double *m,int *ele2tag)
                 //ecoul = -prefactor*erfc;
                 //force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
               //} else {
-	      if (coulcalflag != 0) {	//RS on 22-04-2021: added this line since "if (coulcalflag == 0) {" was removed earlier 
+	      if (coulcalflag != 0) {	//RS on 22-04-2021: added this line since "if (coulcalflag == 0) {" was removed earlier
                 //dudq -= erfc/r;	//RS on 22-04-2021: commented out to eliminate erfc(eta*rij) terms in A and B matrix
                 elei = -1;
                 elej = -1;
@@ -1499,6 +1550,8 @@ void FixConp::pot_wall_ions()
 
     //if (me == 0) utils::logmesg(lmp,"pot_wall_ions() start...\n");
 
+    if (runstage == 1) runstage = 2;
+
     int *tag = atom->tag;
     int nlocal = atom -> nlocal;
     double *q = atom->q;
@@ -1602,10 +1655,10 @@ void FixConp::pot_wall_ions()
     for (int i = 0; i < elenum_all; i++) {
         Psi_w_i[i] = Psi_w_wi[i] - Psi_w_w[i];
         if (electrode_check(i_saved[i]) == 1){
-            B_CP4M2[i] = conv*Psi_w_i[i]/q_L;   //potential on the left wall particles
+            B_CP4M2[i] = -(evscale*conv*Psi_w_i[i])/(0.5*q_L) + vL;   //potential on the left wall particles
         }
         else {
-            B_CP4M2[i] = conv*Psi_w_i[i]/q_R;   //potential on the right wall particles
+            B_CP4M2[i] = -(evscale*conv*Psi_w_i[i])/(0.5*q_R) + vR;   //potential on the right wall particles
         }
     }
 
