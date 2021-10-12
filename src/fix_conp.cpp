@@ -1507,6 +1507,7 @@ void FixConp::pot_wall_wall()
     obj_CoulLong.coeff(2,arg_coeff);                //sets pair_coeff arguments
     obj_CoulLong.settings(1,arg_settings);          //sets second argument to global Coulombic cutoff
     obj_CoulLong.list = force->pair->list;          //since obj_CoulLong.list was not pointing to the same address as force->pair->list
+    //neighbor->nrequest = 0;                       //makes nrequest 3
 
     obj_CoulLong.init();
     obj_CoulLong.setup();
@@ -1630,6 +1631,9 @@ void FixConp::pot_wall_ions()
     //                                          the exact value indicates whether per atom or total contributions are supposed to be computed.
 
     obj_CoulLong.compute(3,1);
+
+    /// \todo This a hack to be able to write restart file at end of the run, since nrequest became 2
+    neighbor->nrequest = 0;
 
     int cntr = 0;
     int tag_Psi_w_wi[elenum_all];
