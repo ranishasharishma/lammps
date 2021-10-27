@@ -35,6 +35,7 @@ FixStyle(conp,FixConp)
 #include "comm.h"
 #include "neighbor.h"
 #include "memory.h"
+#include "neigh_request.h"
 
 
 namespace LAMMPS_NS {

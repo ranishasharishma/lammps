@@ -144,6 +144,10 @@ FixConp::~FixConp()
   delete [] Psi_w_i;
   delete [] Psi_w_wi;
   delete [] B_CP4M2;
+
+    //for (int i = 0; i < neighbor->nrequest; i++)
+     //   if (neighbor->requests[i]) delete neighbor->requests[i];
+    //memory->sfree(neighbor->requests);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1422,10 +1426,11 @@ void FixConp::pot_wall_wall()
 {
     //if (me == 0) utils::logmesg(lmp,"pot_wall_wall() start ...\n");
 
-    int *tag = atom->tag;
+    int* tag = atom->tag;
     int nlocal = atom -> nlocal;
-    double *q = atom->q;
-    double **f = atom->f;
+    double* q = atom->q;
+    double** f = atom->f;
+    int nall = atom->nlocal + atom->nghost;
 
     //set settings of the kspace object declared in the CPM code to those of the the kspace object used by Lammps
     obj_kspace.accuracy_relative = force->kspace->accuracy_relative;
@@ -1436,11 +1441,25 @@ void FixConp::pot_wall_wall()
     obj_kspace.setup();
 
     //determine the size of q with the charges, this is larger than the number of particles and the charges are repeating
-    //
-    int size_q = 1;
-    while (tag[size_q-1]!=0){
-        size_q++;
-    }
+    // THE SIZE OF Q IS ACTUALLY NALL
+
+    //int size_q = 0;
+    //while (tag[size_q]!=0){
+    //    size_q++;
+    //}
+
+    //FILE *out_size_q_and_nall_0 = fopen("size_q_and_n_all_0", "a");
+    //fprintf(out_size_q_and_nall_0,"%20s %20d\n", "size_q", size_q);
+    //fprintf(out_size_q_and_nall_0,"%20s %20d\n\n", "nall", nall);
+    //fclose(out_size_q_and_nall_0);
+
+    //FILE *out_charges_0 = fopen("out_charges_0", "a");
+    //fprintf(out_charges_0,"%20s %20s\n", "tag[i]", "q[i]");
+    //for (int i = 0; i < size_q+1000; i++) {
+    //    fprintf(out_charges_0,"%20d %20f\n", tag[i], q[i]);
+    //}
+    //fprintf(out_charges_0,"\n");
+    //fclose(out_charges_0);
 
     //make array with charges used for the calculation of the potential on the wall particles due to the wall particles
     //note the charges of the wall particles are set to the constant q_L and q_R, which are not the real charges in the simulation
@@ -1448,8 +1467,7 @@ void FixConp::pot_wall_wall()
     //calculated by subtracting the potentials on the wall particles due to the wall particles from the potentials on the
     //wall particles due to both the ions and wall particles, i.e., the charges of the wall particles are not relevant
     //this approach allows us to calculate the potentials on the wall particles due to the wall particles only once
-    double q_for_cal[size_q];
-    int a = 0;
+    double q_for_cal[nall];
     for (int i = 0; i < nlocal; i++) {
         if (electrode_check(i) == 1) {
             q_for_cal[tag[i]] = q_L;            //the elements in the array are sorted by the global index of the atoms
@@ -1458,12 +1476,11 @@ void FixConp::pot_wall_wall()
         } else {
             q_for_cal[tag[i]] = 0;
         }
-        a++;
     }
 
     //make array that has the same size of the array q
-    double q_for_cal_2[size_q];
-    for (int i = 0; i < size_q; i++) {
+    double q_for_cal_2[nall];
+    for (int i = 0; i < nall; i++) {
         q_for_cal_2[i] = q_for_cal[tag[i]];     //the elements are sorted by the local index of the processor
 
     }
@@ -1507,10 +1524,12 @@ void FixConp::pot_wall_wall()
     obj_CoulLong.coeff(2,arg_coeff);                //sets pair_coeff arguments
     obj_CoulLong.settings(1,arg_settings);          //sets second argument to global Coulombic cutoff
     obj_CoulLong.list = force->pair->list;          //since obj_CoulLong.list was not pointing to the same address as force->pair->list
-    //neighbor->nrequest = 0;                       //makes nrequest 3
 
-    obj_CoulLong.init();
-    obj_CoulLong.setup();
+    obj_CoulLong.init();                            //init() sets some internal flags based on user settings
+
+    //delete neighbor->requests[neighbor->nrequest]; //when trying to solve "definitely lost: 384 bytes in 1 blocks"
+
+    obj_CoulLong.setup();                           //setup() is called before each dynamic run. Compute forces and counters are also initialised
     obj_CoulLong.compute(3,1);                      //To calculate the short range potentials
 
     //Adding up the kspace and short range potentials on the wall particles due to the wall particles and store them in
@@ -1536,7 +1555,11 @@ void FixConp::pot_wall_wall()
     atom->q = q;
     atom->f = f;
 
-    delete f_for_cal;
+    for (int i = 0; i < nlocal; i++) {
+        delete [] f_for_cal[i];
+    }
+
+    delete [] f_for_cal;
 
    // if (me == 0) utils::logmesg(lmp,"pot_wall_wall() end...\n");
 
@@ -1557,15 +1580,28 @@ void FixConp::pot_wall_ions()
     int nlocal = atom -> nlocal;
     double *q = atom->q;
     double **f = atom->f;
+    int nall = atom->nlocal + atom->nghost;
 
     //determine the size of q
-    int size_q = 0;
-    while (tag[size_q]!=0){
-        size_q++;
-    }
+    //int size_q = 0;
+    //while (tag[size_q]!=0){
+    //    size_q++;
+    //}
 
-    double q_for_cal[size_q];
-    int a = 0;
+    //FILE *out_size_q_and_nall = fopen("size_q_and_n_all", "a");
+    //fprintf(out_size_q_and_nall,"%20s %20d\n", "size_q", size_q);
+    //fprintf(out_size_q_and_nall,"%20s %20d\n\n", "nall", nall);
+    //fclose(out_size_q_and_nall);
+
+    //FILE *out_charges = fopen("out_charges", "a");
+    //fprintf(out_charges,"%20s %20s\n", "tag[i]", "q[i]");
+    //for (int i = 0; i < size_q+1000; i++) {
+    //    fprintf(out_charges,"%20d %20f\n", tag[i], q[i]);
+    //}
+    //fprintf(out_charges,"\n");
+    //fclose(out_charges);
+
+    double q_for_cal[nall];
     for (int i = 0; i < nlocal; i++) {
         if (electrode_check(i) == 1) {
             q_for_cal[tag[i]] = q_L;
@@ -1576,11 +1612,10 @@ void FixConp::pot_wall_ions()
         else{
             q_for_cal[tag[i]] = q[i];       //the charges of the ions are set to their real values
         }
-        a++;
     }
 
-    double q_for_cal_2[size_q];
-    for (int i = 0; i < size_q; i++) {
+    double q_for_cal_2[nall];
+    for (int i = 0; i < nall; i++) {
         q_for_cal_2[i] = q_for_cal[tag[i]];
 
     }
@@ -1682,11 +1717,11 @@ void FixConp::pot_wall_ions()
 
     atom->f = f;    //make atom->f point at the real force array
 
-    //for (int i = 0; i < nlocal; i++) {
-      //  delete[] f_for_cal[i] ;
-    //}
+    for (int i = 0; i < nlocal; i++) {
+            delete [] f_for_cal[i];
+    }
 
-    //delete f_for_cal;
+    delete [] f_for_cal;
 
     //for (int i = 0; i < nlocal; i++) {
     //    f[i][0] = 0;
