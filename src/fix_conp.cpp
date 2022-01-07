@@ -647,6 +647,7 @@ void FixConp::a_cal()
       idx1d = elei*elenum_all+elealli;
       aaa[idx1d] +=                  -CON_2overPIS*g_ewald; //gaussian self correction		//RS on 22-04-2021: removed eta term in self correction term in the A-matrix
     //aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
+      aaa[idx1d] += C_penalty;
     }
   }
 

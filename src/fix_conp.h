@@ -103,6 +103,7 @@ class FixConp : public Fix {
   const double q_R = 0.001;
   const double conv = 4186.8/(6.02214e23*1.60218e-19);
   const double evscale = 0.069447;
+  const double C_penalty = 1.579;
   PPPM obj_kspace = PPPM(lmp);
   //Ewald obj_kspace = Ewald(lmp);
   PairCoulLong obj_CoulLong = PairCoulLong(lmp);  //declaration of an instance of the class PairCoulLong
