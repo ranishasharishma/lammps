@@ -69,36 +69,37 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   maxiter = 100;
   tolerance = 0.000001;
   everynum = utils::numeric(FLERR,arg[3],false,lmp);	
-  //eta = utils::numeric(FLERR,arg[4],false,lmp);	//RS on 21-04-2021: commented out line that reads eta 
-  molidL = utils::inumeric(FLERR,arg[4],false,lmp);	//RS on 22-04-2022: lowered value in arg[...] in the next lines by 1 due to removal of eta
-//molidL = utils::inumeric(FLERR,arg[5],false,lmp);
-  molidR = utils::inumeric(FLERR,arg[5],false,lmp);
-//molidR = utils::inumeric(FLERR,arg[6],false,lmp);
-  vL = utils::numeric(FLERR,arg[6],false,lmp);
-//vL = utils::numeric(FLERR,arg[7],false,lmp);
-  vR = utils::numeric(FLERR,arg[7],false,lmp);
-//vR = utils::numeric(FLERR,arg[8],false,lmp);
-  if (strcmp(arg[8],"cg") == 0) {
-//if (strcmp(arg[9],"cg") == 0) {
+  //eta = utils::numeric(FLERR,arg[4],false,lmp);	//RS on 21-04-2021: commented out line that reads eta
+  C_penalty = utils::numeric(FLERR,arg[4],false,lmp);	//RS on 7-1-2021: reads in constant of penalty function, the numbers in arg[...] now return to the old values in below lines
+  //molidL = utils::inumeric(FLERR,arg[4],false,lmp);	//RS on 22-04-2022: lowered value in arg[...] in the next lines by 1 due to removal of eta
+  molidL = utils::inumeric(FLERR,arg[5],false,lmp);
+  //molidR = utils::inumeric(FLERR,arg[5],false,lmp);
+  molidR = utils::inumeric(FLERR,arg[6],false,lmp);
+  //vL = utils::numeric(FLERR,arg[6],false,lmp);
+  vL = utils::numeric(FLERR,arg[7],false,lmp);
+  //vR = utils::numeric(FLERR,arg[7],false,lmp);
+  vR = utils::numeric(FLERR,arg[8],false,lmp);
+  //if (strcmp(arg[8],"cg") == 0) {
+  if (strcmp(arg[9],"cg") == 0) {
     minimizer = 0;
-  } else if (strcmp(arg[8],"inv") == 0) {
-//} else if (strcmp(arg[9],"inv") == 0) {
+  //} else if (strcmp(arg[8],"inv") == 0) {
+  } else if (strcmp(arg[9],"inv") == 0) {
     minimizer = 1;
   } else error->all(FLERR,"Unknown minimization method");
   
-  outf = fopen(arg[9],"w");
-//outf = fopen(arg[10],"w");
-  if (narg == 11) {
-//if (narg == 12) {
+  //outf = fopen(arg[9],"w");
+  outf = fopen(arg[10],"w");
+  //if (narg == 11) {
+  if (narg == 12) {
     outa = NULL;
-    a_matrix_fp = fopen(arg[10],"r");
-  //a_matrix_fp = fopen(arg[11],"r");
+    //a_matrix_fp = fopen(arg[10],"r");
+    a_matrix_fp = fopen(arg[11],"r");
     if (a_matrix_fp == NULL) error->all(FLERR,"Cannot open A matrix file");
-    if (strcmp(arg[10],"org") == 0) {
-  //if (strcmp(arg[11],"org") == 0) {
+    //if (strcmp(arg[10],"org") == 0) {
+    if (strcmp(arg[11],"org") == 0) {
       a_matrix_f = 1;
-    } else if (strcmp(arg[10],"inv") == 0) {
-  //} else if (strcmp(arg[11],"inv") == 0) {
+    //} else if (strcmp(arg[10],"inv") == 0) {
+    } else if (strcmp(arg[11],"inv") == 0) {
       a_matrix_f = 2;
     } else {
       error->all(FLERR,"Unknown A matrix type");
