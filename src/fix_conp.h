@@ -63,6 +63,11 @@ class FixConp : public Fix {
   void pot_wall_wall();
   void pot_wall_wall_2();
   void pot_wall_ions();
+  void GQ_H_call();
+  void update_charge_2();
+  void force_extra_ions_1();
+  void force_extra_ions_2();
+  void V_cal(); //function that calculates voltage
 
  private:
   int me,runstage;
@@ -95,15 +100,33 @@ class FixConp : public Fix {
   int elenum,elenum_old,elenum_all;
   double *eleallq;
   double *aaa_all,*bbb_all;
+  double *sss_all;
   int *tag2eleall,*eleall2tag,*curr_tag2eleall,*ele2tag;
+
   double *Psi_w_w;
   double *Psi_w_wi;
   double *Psi_w_i;
-  double *B_CP4M2;
+  double *Bq_CP4M2;
+  double *V_min_Bq_CP4M2;
+
+  //Needed for constant charge, declared as global because might cause segmentation fault
+  double *O_1;
+  double *O_2;
+  double *OAinv_1;
+  double *OAinv_2;
+  double *Z;
+
   const double q_L = -0.001;    //charges used for wall particles for the calculation of the potential on the wall particles due to the ions
   const double q_R = 0.001;
   const double conv = 4186.8/(6.02214e23*1.60218e-19);
   const double evscale = 0.069447;
+  double *GQ;   //RS on 8-6-2022: for constant charge
+  double *H;    //RS on 8-6-2022:for constant charge
+  double C_pp;
+  double C_pm;
+  double C_mp;
+  double C_mm;
+
   PPPM obj_kspace = PPPM(lmp);
   //Ewald obj_kspace = Ewald(lmp);
   PairCoulLong obj_CoulLong = PairCoulLong(lmp);  //declaration of an instance of the class PairCoulLong

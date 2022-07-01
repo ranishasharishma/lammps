@@ -114,6 +114,12 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   Psi_w_w = NULL;
   Psi_w_i = NULL;
   Psi_w_wi = NULL;
+  Bq_CP4M2 = NULL;
+  V_min_Bq_CP4M2 = NULL;
+
+  //needed for constant charge
+  sss_all = O_1 = O_2 = OAinv_1 = OAinv_2 = GQ = H = NULL;
+
   tag2eleall = eleall2tag = curr_tag2eleall = ele2tag = NULL;
   Btime = cgtime = Ctime = Ktime = 0;
   runstage = 0; //after operation
@@ -144,7 +150,17 @@ FixConp::~FixConp()
   delete [] Psi_w_w;
   delete [] Psi_w_i;
   delete [] Psi_w_wi;
-  delete [] B_CP4M2;
+  delete [] Bq_CP4M2;
+  delete [] V_min_Bq_CP4M2;
+
+  delete [] sss_all;
+  delete [] O_1;
+  delete [] O_2;
+  delete [] OAinv_1;
+  delete [] OAinv_2;
+  delete [] Z;
+  delete [] GQ;
+  delete [] H;
 
     //for (int i = 0; i < neighbor->nrequest; i++)
      //   if (neighbor->requests[i]) delete neighbor->requests[i];
@@ -282,7 +298,17 @@ void FixConp::setup(int vflag)
     Psi_w_w = new double[elenum_all];
     Psi_w_wi = new double[elenum_all];
     Psi_w_i = new double[elenum_all];
-    B_CP4M2 = new double[elenum_all];
+    Bq_CP4M2 = new double[elenum_all];
+    V_min_Bq_CP4M2 = new double[elenum_all];
+
+    sss_all = new double[elenum_all*elenum_all];
+    O_1 = new double[elenum_all*elenum_all];
+    O_2 = new double[elenum_all*elenum_all];
+    OAinv_1 = new double[elenum_all*elenum_all];
+    OAinv_2 = new double[elenum_all*elenum_all];
+    Z = new double[elenum_all*elenum_all];
+    GQ = new double[elenum_all];
+    H = new double[elenum_all*elenum_all];
 
     pot_wall_wall();
     //pot_wall_wall_2();
@@ -349,7 +375,9 @@ void FixConp::pre_force(int vflag)
       //}
       //fclose(out_q_before_update_charge);
 
-    update_charge();
+      update_charge_2();    //for constant charge
+      //update_charge();    //for constant potential
+      V_cal();
 
       //FILE *out_q_after_update_charge = fopen("q_after_update_charge", "a");
       //for (int i = 0; i < nlocal; i++) {
@@ -359,6 +387,8 @@ void FixConp::pre_force(int vflag)
 
   }
   //force_cal(vflag);		RS on 22-04-2021: commented out to remove forces due to erfc(eta*rij) terms and the added energy (eta/sqrt(2pi))*sum(Q_i^2), later in the code the function force_cal is also commented out.
+  //force_extra_ions_1();       //RS: the extra forces that we calculated initially, but since they add up to zero, we don't include them anymore
+  //force_extra_ions_2();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1045,7 +1075,7 @@ void FixConp::inv()
       for (i = 0; i < elenum_all; i++) {
           for (j = 0; j < elenum_all; j++) {
               ij = i * elenum_all + j;
-              aaa_all[ij] = aaa_all[ij] - ((AinvE[i] * EtAinv[j])/EtAinvE);
+              sss_all[ij] = aaa_all[ij] - ((AinvE[i] * EtAinv[j])/EtAinvE);
           }
       }
       /* RS: added code end */
@@ -1069,6 +1099,7 @@ void FixConp::inv()
       fclose(outinva);
     }
   }
+  if (runstage == 2) GQ_H_call();     //RS on 8-6-2022: add another condition, if constant charge
   if (runstage == 2) runstage = 3;
 }
 /* ---------------------------------------------------------------------- */
@@ -1102,7 +1133,7 @@ void FixConp::update_charge()
         for (j = 0; j < elenum_all; j++) {
           idx1d=elealli*elenum_all+j;
           //eleallq_i += aaa_all[idx1d]*bbb_all[j];
-          eleallq_i += aaa_all[idx1d]*B_CP4M2[j]; //RS: changed on 27-08-2021 use B by PPPM
+          eleallq_i += sss_all[idx1d]*V_min_Bq_CP4M2[j]; //RS: changed on 27-08-2021 use B by PPPM
           //fprintf(out_Bq_CPM, "%i %i %20.10f %20.10f\n", tagi, elealli, bbb_all[j], bbb_CP4M2[j]);
             //fprintf(out_bbb_CP4M2, "%i %20.10f\n", tagi, bbb_CP4M2[j]);
             //fprintf(out_aaa_all, "%20.10f\n", aaa_all[idx1d]);
@@ -1696,19 +1727,23 @@ void FixConp::pot_wall_ions()
     for (int i = 0; i < elenum_all; i++) {
         Psi_w_i[i] = Psi_w_wi[i] - Psi_w_w[i];
         if (electrode_check(i_saved[i]) == 1){
-            B_CP4M2[i] = -(evscale*conv*Psi_w_i[i])/(0.5*q_L) + vL;   //potential on the left wall particles
+            Bq_CP4M2[i] = (evscale*conv*Psi_w_i[i])/(0.5*q_L);
+            V_min_Bq_CP4M2[i] = vL - Bq_CP4M2[i];   //potential on the left wall particles
         }
         else {
-            B_CP4M2[i] = -(evscale*conv*Psi_w_i[i])/(0.5*q_R) + vR;   //potential on the right wall particles
+            Bq_CP4M2[i] = (evscale*conv*Psi_w_i[i])/(0.5*q_R);
+            V_min_Bq_CP4M2[i] = vR - Bq_CP4M2[i];   //potential on the right wall particles
         }
     }
 
-   // FILE *out_Psi_w_i = fopen("Psi_w_i", "a");
-   // for (int i = 0; i < elenum; i++) {
-   //     fprintf (out_Psi_w_i,"%20d %20f %20f\n", eleall2tag[i], Psi_w_i[i], B_CP4M2[i]);
-   // }
-   // fprintf(out_Psi_w_i,"\n");
-   // fclose(out_Psi_w_i);
+
+   FILE *out_Psi_w_i = fopen("Psi_w_i", "a");
+    for (int i = 0; i < elenum; i++) {
+        fprintf (out_Psi_w_i,"%20d %20.10f %20.10f\n", eleall2tag[i], Psi_w_i[i], Bq_CP4M2[i]);
+    }
+    fprintf(out_Psi_w_i,"\n");
+    fclose(out_Psi_w_i);
+
 
 
 
@@ -1734,5 +1769,590 @@ void FixConp::pot_wall_ions()
     //if (me == 0) utils::logmesg(lmp,"pot_wall_ions() end...\n");
 
 }
+
+void FixConp::GQ_H_call() {
+    int nlocal = atom->nlocal;
+    double *q = atom->q;
+    int Eplus[elenum_all] = {0};
+    int Emin[elenum_all] = {0};
+    double Q_sum = 0.0;
+
+    double AinvEplus[elenum_all]= {0.0};
+    double AinvEmin[elenum_all] = {0.0};
+    double D_pp = 0.0;
+    double D_mm = 0.0;
+    double D_pm = 0.0;
+    double D_mp = 0.0;
+    double DEdivDD_1[elenum_all] = {0.0};
+    double DEdivDD_2[elenum_all] = {0.0};
+
+    /*
+    double O_1[elenum_all*elenum_all] = {0.0};
+    double O_2[elenum_all*elenum_all] = {0.0};
+    double OAinv_1[elenum_all*elenum_all] = {0.0};
+    double OAinv_2[elenum_all*elenum_all]; //= {0.0};
+    double Z[elenum_all*elenum_all] = {0.0};
+     */
+
+    int ij = 0;
+    int ik = 0;
+    int kj = 0;
+
+
+    //FILE *out_Q_sum=fopen("Q_sum", "a");
+    //fprintf(out_Q_sum, "%20.10d", nlocal);
+    int j = 0;
+    for (int i = 0; i < nlocal; i++) {
+        if (electrode_check(j) == 1) {
+            Emin[j] = 1;
+            j++;
+        }
+        if (electrode_check(i) == -1) {
+            Eplus[j] = 1;
+            j++;
+            Q_sum += q[i];                  //Always apply positive potential on second (right) electrode
+        }
+    }
+    //fprintf(out_Q_sum, "%20.10f", Q_sum);
+    //fclose(out_Q_sum);
+
+
+    for (int i = 0; i < elenum_all; i++) {
+        for (int j = 0; j < elenum_all; j++) {
+            ij = i * elenum_all + j;
+            AinvEplus[i] += aaa_all[ij]*Eplus[j];
+            AinvEmin[i] += aaa_all[ij]*Emin[j];
+        }
+    }
+
+    for (int i = 0; i < elenum_all; i++) {
+        D_pp += Eplus[i]*AinvEplus[i];
+        D_pm += Eplus[i]*AinvEmin[i];
+        D_mp += Emin[i]*AinvEplus[i];
+        D_mm += Emin[i]*AinvEmin[i];
+    }
+
+    for (int i = 0; i < elenum_all; i++) {
+        DEdivDD_1[i] = (D_mm*Eplus[i] - D_mp*Emin[i])/(D_pp*D_mm - D_pm*D_mp);
+        DEdivDD_2[i] = (-D_pm*Eplus[i] + D_pp*Emin[i])/(D_pp*D_mm - D_pm*D_mp);
+    }
+
+
+    for (int i = 0; i < elenum_all; i++) {
+        GQ[i] = 0.0;                            //initialise to 0
+        for (int j = 0; j < elenum_all; j++) {
+            ij = i * elenum_all + j;
+            GQ[i] += aaa_all[ij]*(DEdivDD_1[j] - DEdivDD_2[j])*Q_sum;
+        }
+    }
+
+    for (int i = 0; i < elenum_all; i++){
+        for (int j = 0; j < elenum_all; j++){
+            ij = i * elenum_all + j;
+            O_1[ij] = DEdivDD_1[i]*Eplus[j];
+            O_2[ij] = DEdivDD_2[i]*Emin[j];
+        }
+    }
+
+    for (int i = 0; i < elenum_all; i++){
+        for (int j = 0; j < elenum_all; j++){
+            ij = i*elenum_all + j;
+            OAinv_1[ij] = 0.0;
+            OAinv_2[ij] = 0.0;
+            for (int k = 0; k < elenum_all; k++){
+                ik = i*elenum_all + k;
+                kj = k*elenum_all + j;
+                OAinv_1[ij] += O_1[ik]*aaa_all[kj];
+                OAinv_2[ij] += O_2[ik]*aaa_all[kj];
+            }
+        }
+    }
+
+
+    for (int i = 0; i < elenum_all; i++){
+        for (int j = 0; j < elenum_all; j++){
+            ij = i*elenum_all + j;
+            Z[ij] = -OAinv_1[ij] - OAinv_2[ij];
+            if (i == j) {
+                Z[ij] += 1;
+            }
+        }
+    }
+
+
+  for (int i = 0; i < elenum_all; i++){
+      for (int j = 0; j < elenum_all; j++){
+          ij = i*elenum_all + j;
+          H[ij] = 0.0;
+          for (int k = 0; k < elenum_all; k++){
+              ik = i*elenum_all + k;
+              kj = k*elenum_all + j;
+              H[ij] += -aaa_all[ik]*Z[kj];
+          }
+      }
+  }
+
+  double one_over_DD = 1.0/(D_pp*D_mm - D_pm*D_mp);
+  C_pp = one_over_DD*D_mm;
+  C_pm = one_over_DD*(-D_pm);
+  C_mp = one_over_DD*(-D_mp);
+  C_mm = one_over_DD*(D_pp);
+
+
+  /*
+    for (int i = 0; i < elenum_all; i++) {
+        AQ_1[i] = 0.0;                            //initialise to 0
+        for (int j = 0; j < elenum_all; j++) {
+            ij = i * elenum_all + j;
+            AQ_1[i] += (DEdivDD_1[j] - DEdivDD_2[j])*Q_sum;       //first (constant) term of AQ, the second term is calculated in update_charge_2
+        }
+    }
+
+
+      FILE *out_Ainv=fopen("Ainv", "a");
+      for (int i = 0; i < elenum_all; i++) {
+          for (int j = 0; j < elenum_all; j++){
+              ij = i * elenum_all + j;
+              fprintf(out_Ainv, "%20.10f", aaa_all[ij]);
+          }
+          fprintf(out_Ainv, "\n");
+      }
+      fclose(out_Ainv);
+
+      FILE *out_AinvEpm =fopen("AinvEpm", "a");
+      //fprintf(out_AinvEpm, "%20s %20s\n", "AinvEmin", "AinvEplus");
+      for (int i = 0; i < elenum_all; i++) {
+          fprintf(out_AinvEpm, "%20.10f %20.10f\n", AinvEmin[i], AinvEplus[i]);
+      }
+      fclose(out_AinvEpm);
+
+
+      FILE *out_Emin_Eplus = fopen("Emin_Eplus", "a");
+      fprintf(out_Emin_Eplus, "%20s %20d\n", "j=", j);
+      fprintf(out_Emin_Eplus, "%20s %20f\n", "Q=", Q_sum);
+      fprintf(out_Emin_Eplus, "%20s %20f\n", "Dpp=", D_pp);
+      fprintf(out_Emin_Eplus, "%20s %20f\n", "Dpm=", D_pm);
+      fprintf(out_Emin_Eplus, "%20s %20f\n", "Dmp=", D_mp);
+      fprintf(out_Emin_Eplus, "%20s %20f\n", "Dmm=", D_mm);
+      for (int i = 0; i < elenum_all; i++) {
+          fprintf(out_Emin_Eplus, "%20d %20d %20.10f %20.10f\n", Emin[i], Eplus[i], DEdivDD_1[i], DEdivDD_2[i]);
+      }
+      fclose(out_Emin_Eplus);
+
+*/
+
+   FILE *out_GQ=fopen("GQ", "a");
+   for (int i = 0; i < elenum_all; i++) {
+       fprintf(out_GQ, "%20.10f\n", GQ[i]);
+   }
+   fclose(out_GQ);
+
+
+/*
+    FILE *out_OAinv_1=fopen("OAinv_1", "a");
+    for (int i = 0; i < elenum_all; i++) {
+        for (int j = 0; j <elenum_all; j++){
+            ij = i * elenum_all + j;
+            fprintf(out_OAinv_1, "%20.10f", OAinv_1[ij]);
+        }
+        fprintf(out_OAinv_1, "\n");
+    }
+    fclose(out_OAinv_1);
+
+
+    FILE *out_OAinv_2=fopen("O_2", "a");
+    for (int i = 0; i < elenum_all; i++) {
+        for (int j = 0; j <elenum_all; j++){
+            ij = i * elenum_all + j;
+            fprintf(out_O_2, "%20.10f", O_2[ij]);
+        }
+        fprintf(out_O_2, "\n");
+    }
+    fclose(out_O_2);
+
+
+    FILE *out_OAinv_2=fopen("OAinv_2", "a");
+    for (int i = 0; i < elenum_all; i++) {
+        for (int j = 0; j <elenum_all; j++){
+            ij = i * elenum_all + j;
+            fprintf(out_OAinv_2, "%20.10f", OAinv_2[ij]);
+        }
+        fprintf(out_OAinv_2, "\n");
+    }
+    fclose(out_OAinv_2);
+
+    */
+
+    FILE *out_Z=fopen("Z", "a");
+    for (int i = 0; i < elenum_all; i++) {
+        for (int j = 0; j <elenum_all; j++){
+            ij = i * elenum_all + j;
+            fprintf(out_Z, "%20.10f", Z[ij]);
+        }
+        fprintf(out_Z, "\n");
+    }
+    fclose(out_Z);
+
+    FILE *out_H=fopen("H", "a");
+    for (int i = 0; i < elenum_all; i++) {
+        for (int j = 0; j <elenum_all; j++){
+            ij = i * elenum_all + j;
+            fprintf(out_H, "%20.10f", H[ij]);
+        }
+        fprintf(out_H, "\n");
+    }
+    fclose(out_H);
+
+
+}
+
+void FixConp::update_charge_2()
+{
+    int i,j,idx1d;
+    int elealli,tagi;
+    double eleallq_i;
+    int *tag = atom->tag;
+    int nall = atom->nlocal+atom->nghost;
+    double *q = atom->q;
+    double **x = atom->x;
+    //double Q_sum = 0;
+    //double V_p = 0;
+    //double V_m = 0;
+    //double Ep_dot_Ainv_Bq = 0;
+    //double Em_dot_Ainv_Bq = 0;
+
+    //FILE *out_Q_cal = fopen("Q_cal", "a");
+    for (i = 0; i < nall; ++i) {
+        if (electrode_check(i)) {
+            tagi = tag[i];
+            elealli = tag2eleall[tagi];
+            if (minimizer == 0) {
+                q[i] = eleallq[elealli];
+            } else if (minimizer == 1) {
+                eleallq_i = GQ[elealli];
+                for (j = 0; j < elenum_all; j++) {
+                    idx1d=elealli*elenum_all+j;
+                    eleallq_i += H[idx1d]*Bq_CP4M2[j];
+                    //if (electrode_check(i) == -1){
+                    //    Ep_dot_Ainv_Bq += aaa_all[idx1d]*Bq_CP4M2[j];
+                    //}
+                    //else {
+                    //    Em_dot_Ainv_Bq += aaa_all[idx1d]*Bq_CP4M2[j];
+                    //}
+                }
+                //fprintf(out_Q_cal, "%20.10d %20.10f\n", tagi, eleallq_i);
+                q[i] = eleallq_i;
+            }
+            //if (electrode_check(i) == -1){
+            //    Q_sum += q[i];
+            //}
+
+        }
+    }
+    //fclose(out_Q_cal);
+
+    //V_p = C_pp*(Q_sum + Ep_dot_Ainv_Bq) + C_pm*(-Q_sum + Em_dot_Ainv_Bq);
+    //V_m = C_mp*(Q_sum + Ep_dot_Ainv_Bq) + C_mm*(-Q_sum + Em_dot_Ainv_Bq);
+
+    //FILE *out_V_cal = fopen("V_cal", "a");
+    //fprintf(out_V_cal, "%20.10f %20.10f\n", V_m, V_p);
+    //fclose(out_V_cal);
+
+
+}
+
+//The below function calculates the forces on the ions if the wall charges are set to zero
+void FixConp::force_extra_ions_1()
+{
+    int *tag = atom->tag;
+    int nlocal = atom -> nlocal;
+    double *q = atom->q;
+    double **f = atom->f;
+    int nall = atom->nlocal + atom->nghost;
+
+    double q_for_cal[nall] = {0.0};    //dummy array for the charges of the particles
+    for (int i = 0; i < nall; i++) {
+        if (electrode_check(i)) {
+            q_for_cal[i] = 0.0;        //charges of the wall particles are set to 0
+        }
+        else{
+            q_for_cal[i] = q[i];       //the charges of the ions are set to their real values
+        }
+    }
+
+    atom->q = &q_for_cal[0];           //q now points the values of q_for_cal
+
+    //declaration and intitialisation of dummy array for forces
+    double **f_extra;
+    f_extra = new double*[nlocal];      //we are using "newton off” as instructed by Wang et al., forces are then tallied to the owned atoms.
+    for (int i = 0; i < nlocal; i++) {
+        f_extra[i] = new double[3] ;
+    }
+
+    for (int i = 0; i < nlocal; i++) {
+        f_extra[i][0] = 0;
+        f_extra[i][1] = 0;
+        f_extra[i][2] = 0;
+    }
+
+
+    atom->f = f_extra;        //makes atom->f point to the dummy array
+
+    //check force before computation
+    FILE *out_F_before = fopen("F_before", "a");
+    for (int i = 0; i < nlocal; i++) {
+       fprintf (out_F_before,"%20d %20.10f %20.10f %20.10f\n", tag[i], f_extra[i][0], f_extra[i][1], f_extra[i][2]);
+    }
+    fprintf(out_F_before,"\n");
+    fclose(out_F_before);
+
+
+    obj_kspace.compute(3,1);    //calculation of long range electrostatic interaction
+
+    obj_CoulLong.compute(3,1);  //calculation of short range electrostatic interaction
+
+    //print forces
+    FILE *out_F_after_0 = fopen("F_after_0", "a");
+    for (int i = 0; i < nlocal; i++) {
+        fprintf (out_F_after_0,"%20d %20.10f %20.10f %20.10f\n", tag[i], f_extra[i][0], f_extra[i][1], f_extra[i][2]);
+    }
+    fprintf(out_F_after_0,"\n");
+    fclose(out_F_after_0);
+
+
+    /// \todo This a hack to be able to write restart file at end of the run, since nrequest became 2
+    neighbor->nrequest = 0;
+
+    //subtracting f_extra from forces on ions
+    for (int i = 0; i < nlocal; i++) {
+        if (electrode_check(i)==0){
+            f[i][0] = f[i][0] - f_extra[i][0];
+            f[i][1] = f[i][1] - f_extra[i][1];
+            f[i][2] = f[i][2] - f_extra[i][2];
+        }
+    }
+
+    /*
+
+    FILE *out_F_after_0 = fopen("F_after_0", "a");
+    for (int i = 0; i < nlocal; i++) {
+        fprintf (out_F_after_0,"%20d %20.10f %20.10f %20.10f\n", tag[i], f_extra[i][0], f_extra[i][1], f_extra[i][2]);
+    }
+    fprintf(out_F_after_0,"\n");
+    fclose(out_F_after_0);
+
+    FILE *out_eatom_after_0 = fopen("eatom_after_0", "a");
+    for (int i = 0; i < nlocal; i++) {
+        fprintf(out_eatom_after_0,"%20d %20.10f %20.10f\n", tag[i], *(obj_kspace.eatom +i), *(obj_CoulLong.eatom +i));
+    }
+    fclose(out_eatom_after_0);
+     */
+
+    //reset the values set for the calculation
+    atom->q = q;    //makes atom->q point at the real charge array
+
+    atom->f = f;    //makes atom->f point at the real force array
+
+    //deleting values of dummy array for force
+    for (int i = 0; i < nlocal; i++) {
+        delete [] f_extra[i];
+    }
+
+    delete [] f_extra;
+
+}
+
+// the below function calculates the forces on the ions if the charges of the wall particles are set to
+// transpose(H)*(AQ + Bq) or -transpose(Z)*(Q + inv(A)*Bq)
+void FixConp::force_extra_ions_2() {
+
+    int *tag = atom->tag;
+    int nlocal = atom -> nlocal;
+    double *q = atom->q;
+    double **f = atom->f;
+    int nall = atom->nlocal + atom->nghost;
+
+    //setting the values of the wall charges
+
+    //declaration and initialisation of needed variables
+    double q_for_cal[nall] = {0.0};
+    int elealli;
+    int ij;
+    int ji;
+    double AinvBq[elenum_all] = {0.0};
+    double Q_plus_AinvBq[elenum_all] = {0.0};
+
+
+    FILE *out_Bq=fopen("Bq_inf_extra", "a");
+    for (int i = 0; i < elenum_all; i++) {
+        fprintf(out_Bq, "%20.10f\n", Bq_CP4M2[i]);
+    }
+    fclose(out_Bq);
+
+    //calculation of A^{-1}Bq
+    for (int i = 0; i < elenum_all; i++){
+        for (int j = 0; j < elenum_all; j++){
+            ij = i*elenum_all + j;
+            AinvBq[i] += aaa_all[ij]*Bq_CP4M2[j];
+        }
+    }
+
+    /*
+    FILE *out_AinvBq=fopen("AinvBq", "a");
+    for (int i = 0; i < elenum_all; i++) {
+        fprintf(out_AinvBq, "%20.10f\n", AinvBq[i]);
+    }
+    fclose(out_AinvBq);
+     */
+
+    //calculation of Q + A^{-1}Bq
+    for (int i = 0; i < nall; i++){
+        if (electrode_check(i)) {
+            elealli = tag2eleall[tag[i]];
+            Q_plus_AinvBq[elealli] = q[i] + AinvBq[elealli];
+        }
+    }
+
+    /*
+    FILE *out_Q_plus_AinvBq=fopen("Q_plus_AinvBq", "a");
+    for (int i = 0; i < elenum_all; i++) {
+        fprintf(out_Q_plus_AinvBq, "%20.10f\n", Q_plus_AinvBq[i]);
+    }
+    fclose(out_Q_plus_AinvBq);
+
+
+    FILE *out_q_for_cal_0=fopen("q_for_cal_0", "a");
+    for (int i = 0; i < nall ; i++) {
+        fprintf(out_q_for_cal_0, "%20d %20.10f %20.10f\n", tag[i], q[i], q_for_cal[i]);
+    }
+    fclose(out_q_for_cal_0);
+     */
+
+    //calculation of -Z*[Q + A^{-1}Bq] and setting q_for_cal to it
+    for (int i = 0; i < nall; i++) {
+        if (electrode_check(i)) {
+            elealli = tag2eleall[tag[i]];
+            for (int j = 0; j < elenum_all; j++){
+                ji = j*elenum_all+elealli;
+                q_for_cal[i] += -Z[ji]*Q_plus_AinvBq[j];     //charges of the wall particles are set to -transpose(Z)*(Q + inv(A)*Bq)
+            }
+        }
+        else{
+            q_for_cal[i] = q[i];       //the charges of the ions are set to their real values
+        }
+    }
+
+    atom->q = &q_for_cal[0];            // q now points the values of q_for_cal
+
+    //dummy array for forces
+    double **f_extra;
+    f_extra = new double*[nlocal];
+
+    for (int i = 0; i < nlocal; i++) {
+        f_extra[i] = new double[3] ;
+    }
+
+    for (int i = 0; i < nlocal; i++) {
+        f_extra[i][0] = 0;
+        f_extra[i][1] = 0;
+        f_extra[i][2] = 0;
+    }
+
+    atom->f = f_extra;        //makes atom->f point to dummy array
+
+
+    FILE *out_q_for_cal=fopen("q_for_cal", "a");
+    for (int i = 0; i < nall ; i++) {
+        fprintf(out_q_for_cal, "%20d %20.10f %20.10f\n", tag[i], q[i], q_for_cal[i]);
+    }
+    fprintf(out_q_for_cal,"break\n");
+    fclose(out_q_for_cal);
+
+    FILE *out_F_before_2 = fopen("F_before_2", "a");
+    for (int i = 0; i < nlocal; i++) {
+        fprintf (out_F_before_2,"%20d %20.10f %20.10f %20.10f\n", tag[i], f_extra[i][0], f_extra[i][1], f_extra[i][2]);
+    }
+    fprintf(out_F_before_2,"\n");
+    fclose(out_F_before_2);
+
+    obj_kspace.compute(3,1);
+    obj_CoulLong.compute(3,1);
+
+    FILE *out_F_after_H_AQ_plus_Bq = fopen("F_after_H_AQ_plus_Bq", "a");
+    for (int i = 0; i < nlocal; i++) {
+        fprintf (out_F_after_H_AQ_plus_Bq,"%20d %20.10f %20.10f %20.10f\n", tag[i], f_extra[i][0], f_extra[i][1], f_extra[i][2]);
+    }
+    fprintf(out_F_after_H_AQ_plus_Bq,"\n");
+    fclose(out_F_after_H_AQ_plus_Bq);
+
+    //added f_extra to forces on ions
+    for (int i = 0; i < nlocal; i++) {
+        if (electrode_check(i)==0){
+            f[i][0] = f[i][0] + f_extra[i][0];
+            f[i][1] = f[i][1] + f_extra[i][1];
+            f[i][2] = f[i][2] + f_extra[i][2];
+        }
+    }
+
+    //reset the values set for the calculation
+    atom->q = q;    //makes atom->q point at the real charge array
+
+    atom->f = f;    //makes atom->f point at the real force array
+
+    //deleting values of dummy array for force
+    for (int i = 0; i < nlocal; i++) {
+        delete [] f_extra[i];
+    }
+
+    delete [] f_extra;
+
+}
+
+void FixConp::V_cal() {
+
+    double Q_sum = 0;
+    double V_p = 0;
+    double V_m = 0;
+    double Ep_dot_Ainv_Bq = 0;
+    double Em_dot_Ainv_Bq = 0;
+    double AinvBq[elenum_all] = {0.0};
+    double nlocal = atom->nlocal;
+    int *tag = atom->tag;
+    double *q = atom->q;
+
+
+    //calculation of A^{-1}Bq
+    int ij = 0;
+    for (int i = 0; i < elenum_all; i++){
+        for (int j = 0; j < elenum_all; j++){
+            ij = i*elenum_all + j;
+            AinvBq[i] += aaa_all[ij]*Bq_CP4M2[j];
+        }
+    }
+
+    int elealli = 0;
+    for (int i = 0; i < nlocal; i++){
+        if (electrode_check(i) == 1) {
+            elealli = tag2eleall[tag[i]];
+            Em_dot_Ainv_Bq += AinvBq[elealli];
+        }
+        if(electrode_check(i) == -1){
+            elealli = tag2eleall[tag[i]];
+            Ep_dot_Ainv_Bq += AinvBq[elealli];
+            Q_sum += q[i];
+
+        }
+    }
+
+    V_p = C_pp*(Q_sum + Ep_dot_Ainv_Bq) + C_pm*(-Q_sum + Em_dot_Ainv_Bq);
+    V_m = C_mp*(Q_sum + Ep_dot_Ainv_Bq) + C_mm*(-Q_sum + Em_dot_Ainv_Bq);
+
+
+    FILE *out_V_cal = fopen("V_cal", "a");
+    fprintf(out_V_cal, "%20.10f %20.10f %20.10f %20.10f %20.10f\n", Ep_dot_Ainv_Bq, Em_dot_Ainv_Bq, Q_sum, V_m, V_p);
+    fclose(out_V_cal);
+
+}
+
 
 
