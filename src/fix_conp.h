@@ -63,11 +63,12 @@ class FixConp : public Fix {
   void pot_wall_wall();
   void pot_wall_wall_2();
   void pot_wall_ions();
-  void GQ_H_call();
+  void G_H_call();
   void update_charge_2();
   void force_extra_ions_1();
   void force_extra_ions_2();
   void V_cal(); //function that calculates voltage
+  void Q_cal(); //function that calculates charge of right/positive wall
 
  private:
   int me,runstage;
@@ -120,12 +121,16 @@ class FixConp : public Fix {
   const double q_R = 0.001;
   const double conv = 4186.8/(6.02214e23*1.60218e-19);
   const double evscale = 0.069447;
-  double *GQ;   //RS on 8-6-2022: for constant charge
+  //double *GQ;   //RS on 8-6-2022: for constant charge
+  double *G;    //RS on 1-7-2022: for decreasing charge
   double *H;    //RS on 8-6-2022:for constant charge
   double C_pp;
   double C_pm;
   double C_mp;
   double C_mm;
+  double V_p;
+  double V_m;
+  double Q_sum;
 
   PPPM obj_kspace = PPPM(lmp);
   //Ewald obj_kspace = Ewald(lmp);

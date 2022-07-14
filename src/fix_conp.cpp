@@ -118,7 +118,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   V_min_Bq_CP4M2 = NULL;
 
   //needed for constant charge
-  sss_all = O_1 = O_2 = OAinv_1 = OAinv_2 = GQ = H = NULL;
+  sss_all = O_1 = O_2 = OAinv_1 = OAinv_2 = G = H = NULL;
 
   tag2eleall = eleall2tag = curr_tag2eleall = ele2tag = NULL;
   Btime = cgtime = Ctime = Ktime = 0;
@@ -159,12 +159,9 @@ FixConp::~FixConp()
   delete [] OAinv_1;
   delete [] OAinv_2;
   delete [] Z;
-  delete [] GQ;
+  delete [] G;
   delete [] H;
 
-    //for (int i = 0; i < neighbor->nrequest; i++)
-     //   if (neighbor->requests[i]) delete neighbor->requests[i];
-    //memory->sfree(neighbor->requests);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -224,6 +221,7 @@ void FixConp::setup(int vflag)
     err = rms(kxmax,xprd,natoms,q2);
   }
 
+
   err = rms(kymax,yprd,natoms,q2);
   while (err > accuracy) {
     kymax++;
@@ -235,6 +233,18 @@ void FixConp::setup(int vflag)
     kzmax++;
     err = rms(kzmax,zprd_slab,natoms,q2);
   }
+
+  //RS: code added star
+  //overrule kmax
+    kxmax = 7;
+    kymax = 7;
+    kzmax = 19;
+
+    FILE *out_k_values = fopen("k_values", "a");
+    fprintf(out_k_values,"%20d %20d %20d\n", kxmax, kymax, kzmax);
+    fclose(out_k_values);
+
+    //RS: code added end
 
   kmax = MAX(kxmax,kymax);
   kmax = MAX(kmax,kzmax);
@@ -307,11 +317,12 @@ void FixConp::setup(int vflag)
     OAinv_1 = new double[elenum_all*elenum_all];
     OAinv_2 = new double[elenum_all*elenum_all];
     Z = new double[elenum_all*elenum_all];
-    GQ = new double[elenum_all];
+    G = new double[elenum_all];
     H = new double[elenum_all*elenum_all];
 
     pot_wall_wall();
     //pot_wall_wall_2();
+
     runstage = 1;
     }
 
@@ -377,7 +388,6 @@ void FixConp::pre_force(int vflag)
 
       update_charge_2();    //for constant charge
       //update_charge();    //for constant potential
-      V_cal();
 
       //FILE *out_q_after_update_charge = fopen("q_after_update_charge", "a");
       //for (int i = 0; i < nlocal; i++) {
@@ -1099,7 +1109,15 @@ void FixConp::inv()
       fclose(outinva);
     }
   }
-  if (runstage == 2) GQ_H_call();     //RS on 8-6-2022: add another condition, if constant charge
+  if (runstage == 2) {
+      G_H_call();     //RS on 8-6-2022: add another condition, if constant charge
+      Q_cal();
+      V_cal();
+      FILE *out_V_cal = fopen("V_cal", "a");
+      fprintf(out_V_cal, "%20ld %20.10f %20.10f %20.10f\n", update->ntimestep-1, Q_sum, V_m, V_p);
+      fclose(out_V_cal);
+  }
+
   if (runstage == 2) runstage = 3;
 }
 /* ---------------------------------------------------------------------- */
@@ -1560,8 +1578,6 @@ void FixConp::pot_wall_wall()
 
     obj_CoulLong.init();                            //init() sets some internal flags based on user settings
 
-    //delete neighbor->requests[neighbor->nrequest]; //when trying to solve "definitely lost: 384 bytes in 1 blocks"
-
     obj_CoulLong.setup();                           //setup() is called before each dynamic run. Compute forces and counters are also initialised
     obj_CoulLong.compute(3,1);                      //To calculate the short range potentials
 
@@ -1701,6 +1717,10 @@ void FixConp::pot_wall_ions()
     obj_CoulLong.compute(3,1);
 
     /// \todo This a hack to be able to write restart file at end of the run, since nrequest became 2
+    for (int i = 0; i < neighbor->nrequest; i++) {
+        delete neighbor->requests[i];
+        neighbor->requests[i] = nullptr;
+    }
     neighbor->nrequest = 0;
 
     int cntr = 0;
@@ -1736,6 +1756,7 @@ void FixConp::pot_wall_ions()
         }
     }
 
+    /*
 
    FILE *out_Psi_w_i = fopen("Psi_w_i", "a");
     for (int i = 0; i < elenum; i++) {
@@ -1744,7 +1765,7 @@ void FixConp::pot_wall_ions()
     fprintf(out_Psi_w_i,"\n");
     fclose(out_Psi_w_i);
 
-
+*/
 
 
 
@@ -1770,12 +1791,12 @@ void FixConp::pot_wall_ions()
 
 }
 
-void FixConp::GQ_H_call() {
+void FixConp::G_H_call() {
     int nlocal = atom->nlocal;
     double *q = atom->q;
     int Eplus[elenum_all] = {0};
     int Emin[elenum_all] = {0};
-    double Q_sum = 0.0;
+    //double Q_sum = 0.0;
 
     double AinvEplus[elenum_all]= {0.0};
     double AinvEmin[elenum_all] = {0.0};
@@ -1810,7 +1831,7 @@ void FixConp::GQ_H_call() {
         if (electrode_check(i) == -1) {
             Eplus[j] = 1;
             j++;
-            Q_sum += q[i];                  //Always apply positive potential on second (right) electrode
+            //Q_sum += q[i];                  //Always apply positive potential on second (right) electrode
         }
     }
     //fprintf(out_Q_sum, "%20.10f", Q_sum);
@@ -1839,10 +1860,12 @@ void FixConp::GQ_H_call() {
 
 
     for (int i = 0; i < elenum_all; i++) {
-        GQ[i] = 0.0;                            //initialise to 0
+        //GQ[i] = 0.0;                            //initialise to 0
+        G[i] = 0.0;
         for (int j = 0; j < elenum_all; j++) {
             ij = i * elenum_all + j;
-            GQ[i] += aaa_all[ij]*(DEdivDD_1[j] - DEdivDD_2[j])*Q_sum;
+            //GQ[i] += aaa_all[ij]*(DEdivDD_1[j] - DEdivDD_2[j])*Q_sum;
+            G[i] += aaa_all[ij]*(DEdivDD_1[j] - DEdivDD_2[j]);
         }
     }
 
@@ -1939,7 +1962,6 @@ void FixConp::GQ_H_call() {
       }
       fclose(out_Emin_Eplus);
 
-*/
 
    FILE *out_GQ=fopen("GQ", "a");
    for (int i = 0; i < elenum_all; i++) {
@@ -1948,7 +1970,6 @@ void FixConp::GQ_H_call() {
    fclose(out_GQ);
 
 
-/*
     FILE *out_OAinv_1=fopen("OAinv_1", "a");
     for (int i = 0; i < elenum_all; i++) {
         for (int j = 0; j <elenum_all; j++){
@@ -2015,11 +2036,25 @@ void FixConp::update_charge_2()
     int nall = atom->nlocal+atom->nghost;
     double *q = atom->q;
     double **x = atom->x;
-    //double Q_sum = 0;
-    //double V_p = 0;
-    //double V_m = 0;
-    //double Ep_dot_Ainv_Bq = 0;
-    //double Em_dot_Ainv_Bq = 0;
+
+    Q_cal();
+    double R = 2188.6973610310;     //in fs/angstr
+    V_cal();                    //calculates potentials V_m and V_p
+
+    bigint curr_step = update->ntimestep - 1;
+    int print_every = 100;
+    int mod = curr_step % print_every;
+    bigint first_step = update->firststep;
+
+    if (mod == 0) {
+        FILE *out_V_cal = fopen("V_cal", "a");
+        fprintf(out_V_cal, "%20ld %20.10f %20.10f %20.10f\n", curr_step, Q_sum, V_m, V_p);
+        fclose(out_V_cal);
+    }
+    double dt = update->dt;     //timestep, have to use 1 for everynum in constant potential command
+    double I = (V_p - V_m)/R;
+    double dQ = I*dt;
+    Q_sum -= dQ;
 
     //FILE *out_Q_cal = fopen("Q_cal", "a");
     for (i = 0; i < nall; ++i) {
@@ -2029,7 +2064,7 @@ void FixConp::update_charge_2()
             if (minimizer == 0) {
                 q[i] = eleallq[elealli];
             } else if (minimizer == 1) {
-                eleallq_i = GQ[elealli];
+                eleallq_i = G[elealli]*Q_sum;
                 for (j = 0; j < elenum_all; j++) {
                     idx1d=elealli*elenum_all+j;
                     eleallq_i += H[idx1d]*Bq_CP4M2[j];
@@ -2049,6 +2084,9 @@ void FixConp::update_charge_2()
 
         }
     }
+
+    //Q_cal();
+    //V_cal();
     //fclose(out_Q_cal);
 
     //V_p = C_pp*(Q_sum + Ep_dot_Ainv_Bq) + C_pm*(-Q_sum + Em_dot_Ainv_Bq);
@@ -2308,11 +2346,12 @@ void FixConp::force_extra_ions_2() {
 
 }
 
+
 void FixConp::V_cal() {
 
-    double Q_sum = 0;
-    double V_p = 0;
-    double V_m = 0;
+    //double Q_sum = 0;
+    //double V_p = 0;
+    //double V_m = 0;
     double Ep_dot_Ainv_Bq = 0;
     double Em_dot_Ainv_Bq = 0;
     double AinvBq[elenum_all] = {0.0};
@@ -2339,7 +2378,7 @@ void FixConp::V_cal() {
         if(electrode_check(i) == -1){
             elealli = tag2eleall[tag[i]];
             Ep_dot_Ainv_Bq += AinvBq[elealli];
-            Q_sum += q[i];
+            //Q_sum += q[i];
 
         }
     }
@@ -2348,10 +2387,21 @@ void FixConp::V_cal() {
     V_m = C_mp*(Q_sum + Ep_dot_Ainv_Bq) + C_mm*(-Q_sum + Em_dot_Ainv_Bq);
 
 
-    FILE *out_V_cal = fopen("V_cal", "a");
-    fprintf(out_V_cal, "%20.10f %20.10f %20.10f %20.10f %20.10f\n", Ep_dot_Ainv_Bq, Em_dot_Ainv_Bq, Q_sum, V_m, V_p);
-    fclose(out_V_cal);
+    //FILE *out_V_cal = fopen("V_cal", "a");
+    //fprintf(out_V_cal, "%20.10f %20.10f %20.10f %20.10f %20.10f %20.10f %20.10f %20.10f %20.10f\n", C_mm, C_mp, C_pm, C_pp, Ep_dot_Ainv_Bq, Em_dot_Ainv_Bq, Q_sum, V_m, V_p);
+    //fclose(out_V_cal);
 
+}
+
+void FixConp::Q_cal() {
+    Q_sum = 0;
+    int nlocal = atom->nlocal;
+    double *q = atom->q;
+    for (int i = 0; i < nlocal; i++){
+        if(electrode_check(i) == -1){
+            Q_sum += q[i];
+        }
+    }
 }
 
 
