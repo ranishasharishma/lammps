@@ -63,7 +63,7 @@ class FixConp : public Fix {
   void pot_wall_wall();
   void pot_wall_wall_2();
   void pot_wall_ions();
-  void G_H_call();
+  void G_H_cal();
   void update_charge_2();
   void force_extra_ions_1();
   void force_extra_ions_2();
@@ -110,7 +110,7 @@ class FixConp : public Fix {
   double *Bq_CP4M2;
   double *V_min_Bq_CP4M2;
 
-  //Needed for constant charge, declared as global because might cause segmentation fault
+  //Needed for constant charge, declared as global because might cause segmentation fault because of large array
   double *O_1;
   double *O_2;
   double *OAinv_1;
@@ -131,6 +131,11 @@ class FixConp : public Fix {
   double V_p;
   double V_m;
   double Q_sum;
+
+  //RS: for including constant charge and discharging in fix conp command
+  int method;       //RS: method = 0 is constant potential, method = 1 is constant charge
+  int discharge;    //RS: discharge = 0 is no discharging, discharge = 1 is including discharging
+  double R;         //RS: resistance for discharging
 
   PPPM obj_kspace = PPPM(lmp);
   //Ewald obj_kspace = Ewald(lmp);

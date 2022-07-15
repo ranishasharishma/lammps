@@ -60,46 +60,57 @@ extern "C" {
   void dgetri_(const int *N,double *A,const int *lda,const int *ipiv,double *work,const int *lwork,int *info);
 }
 /* ---------------------------------------------------------------------- */
+//RS on 15-07-2022: the fix command has been adjusted to
+// fix [ID] all conp [Nevery] [penalty] [Molecule-ID 1] [Molecule-ID 2] [Method] [Input arg 1] [Input arg 2] [Minimization method] [Log] [Matrix]
+// for Method use potential or charge (i.e, simulate constant potential or constant charge/discharge)
+// for potential: Input arg 1 = potential left, Input arg 2 = potential right (in Volt)
+// for charge: Input arg 1 = constant/discharge, Input arg 2 = Resistance in (fs*V)/e
 
 FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg)
 {
-  if (narg < 10) error->all(FLERR,"Illegal fix conp command");	//RS on 22-04-2022: changed 11 to 10 since there is one input argument less because of elimination of eta
-//if (narg < 11) error->all(FLERR,"Illegal fix conp command");
+  if (narg < 11) error->all(FLERR,"Illegal fix conp command");
   maxiter = 100;
   tolerance = 0.000001;
-  everynum = utils::numeric(FLERR,arg[3],false,lmp);	
-  //eta = utils::numeric(FLERR,arg[4],false,lmp);	//RS on 21-04-2021: commented out line that reads eta
-  C_penalty = utils::numeric(FLERR,arg[4],false,lmp);	//RS on 7-1-2021: reads in constant of penalty function, the numbers in arg[...] now return to the old values in below lines
-  //molidL = utils::inumeric(FLERR,arg[4],false,lmp);	//RS on 22-04-2022: lowered value in arg[...] in the next lines by 1 due to removal of eta
+  everynum = utils::numeric(FLERR,arg[3],false,lmp);
+  C_penalty = utils::numeric(FLERR,arg[4],false,lmp);	//RS: reads in constant of penalty function instead of eta as in old code
   molidL = utils::inumeric(FLERR,arg[5],false,lmp);
-  //molidR = utils::inumeric(FLERR,arg[5],false,lmp);
   molidR = utils::inumeric(FLERR,arg[6],false,lmp);
-  //vL = utils::numeric(FLERR,arg[6],false,lmp);
-  vL = utils::numeric(FLERR,arg[7],false,lmp);
-  //vR = utils::numeric(FLERR,arg[7],false,lmp);
-  vR = utils::numeric(FLERR,arg[8],false,lmp);
-  //if (strcmp(arg[8],"cg") == 0) {
-  if (strcmp(arg[9],"cg") == 0) {
+  if (strcmp(arg[7],"potential") == 0){
+      method = 0;
+      vL = utils::numeric(FLERR,arg[8],false,lmp);
+      vR = utils::numeric(FLERR,arg[9],false,lmp);
+  }
+  else if (strcmp(arg[7],"charge") == 0){
+      method = 1;
+      if (strcmp(arg[8],"constant") == 0){
+          discharge = 0;
+      }
+      else if (strcmp(arg[8],"discharge") == 0){
+          discharge = 1;
+      }
+      else{
+          error->all(FLERR,"invalid arguments for constant charge");
+      }
+      R = evscale*utils::numeric(FLERR,arg[9],false,lmp);       //RS: unit of R tranformed as during the calculation voltage unit in transformed by multiplying by evsacle
+  }
+  else {
+      error->all(FLERR,"invalid method");
+  }
+  if (strcmp(arg[10],"cg") == 0) {
     minimizer = 0;
-  //} else if (strcmp(arg[8],"inv") == 0) {
-  } else if (strcmp(arg[9],"inv") == 0) {
+  } else if (strcmp(arg[10],"inv") == 0) {
     minimizer = 1;
   } else error->all(FLERR,"Unknown minimization method");
-  
-  //outf = fopen(arg[9],"w");
-  outf = fopen(arg[10],"w");
-  //if (narg == 11) {
-  if (narg == 12) {
+
+  outf = fopen(arg[11],"w");
+  if (narg == 13) {
     outa = NULL;
-    //a_matrix_fp = fopen(arg[10],"r");
-    a_matrix_fp = fopen(arg[11],"r");
+    a_matrix_fp = fopen(arg[12],"r");
     if (a_matrix_fp == NULL) error->all(FLERR,"Cannot open A matrix file");
-    //if (strcmp(arg[10],"org") == 0) {
-    if (strcmp(arg[11],"org") == 0) {
+    if (strcmp(arg[12],"org") == 0) {
       a_matrix_f = 1;
-    //} else if (strcmp(arg[10],"inv") == 0) {
-    } else if (strcmp(arg[11],"inv") == 0) {
+    } else if (strcmp(arg[12],"inv") == 0) {
       a_matrix_f = 2;
     } else {
       error->all(FLERR,"Unknown A matrix type");
@@ -234,11 +245,11 @@ void FixConp::setup(int vflag)
     err = rms(kzmax,zprd_slab,natoms,q2);
   }
 
-  //RS: code added star
-  //overrule kmax
-    kxmax = 7;
-    kymax = 7;
-    kzmax = 19;
+  //RS: code added start
+  //to overrule kmax, are different for different initial charges, which results in different amatrix, the effect is especially large when ions are removed from box
+    //kxmax = 7;
+    //kymax = 7;
+    //kzmax = 19;
 
     FILE *out_k_values = fopen("k_values", "a");
     fprintf(out_k_values,"%20d %20d %20d\n", kxmax, kymax, kzmax);
@@ -270,8 +281,10 @@ void FixConp::setup(int vflag)
 
   int nmax = atom->nmax;
   //double evscale = 0.069447; //RS: now declared as global constant, so it can be used in other functions
-  vL *= evscale;
-  vR *= evscale;
+  if (method == 0){
+      vL *= evscale;
+      vR *= evscale;
+  }
 
   memory->create3d_offset(cs,-kmax,kmax,3,nmax,"fixconp:cs");
   memory->create3d_offset(sn,-kmax,kmax,3,nmax,"fixconp:sn");
@@ -386,8 +399,12 @@ void FixConp::pre_force(int vflag)
       //}
       //fclose(out_q_before_update_charge);
 
-      update_charge_2();    //for constant charge
-      //update_charge();    //for constant potential
+      if (method == 0){
+          update_charge();    //for constant potential
+      }
+      else{
+          update_charge_2();    //for constant charge
+      }
 
       //FILE *out_q_after_update_charge = fopen("q_after_update_charge", "a");
       //for (int i = 0; i < nlocal; i++) {
@@ -1110,15 +1127,18 @@ void FixConp::inv()
     }
   }
   if (runstage == 2) {
-      G_H_call();     //RS on 8-6-2022: add another condition, if constant charge
-      Q_cal();
-      V_cal();
-      FILE *out_V_cal = fopen("V_cal", "a");
-      fprintf(out_V_cal, "%20ld %20.10f %20.10f %20.10f\n", update->ntimestep-1, Q_sum, V_m, V_p);
-      fclose(out_V_cal);
+      if (method == 1){     //RS: if constant charge
+          G_H_cal();
+          Q_cal();
+          V_cal();
+          FILE *out_V_cal = fopen("V_cal", "a");
+          fprintf(out_V_cal, "%20s %20s %20s %20s\n", "Step", "Q_R [e]", "V_L [V]", "V_R [V]");
+          fprintf(out_V_cal, "%20ld %20.10f %20.10f %20.10f\n", update->ntimestep-1, Q_sum, V_m/evscale, V_p/evscale);
+          fclose(out_V_cal);
+      }
+      runstage = 3;
   }
 
-  if (runstage == 2) runstage = 3;
 }
 /* ---------------------------------------------------------------------- */
 void FixConp::update_charge()
@@ -1748,11 +1768,15 @@ void FixConp::pot_wall_ions()
         Psi_w_i[i] = Psi_w_wi[i] - Psi_w_w[i];
         if (electrode_check(i_saved[i]) == 1){
             Bq_CP4M2[i] = (evscale*conv*Psi_w_i[i])/(0.5*q_L);
-            V_min_Bq_CP4M2[i] = vL - Bq_CP4M2[i];   //potential on the left wall particles
+            if (method == 0){
+                V_min_Bq_CP4M2[i] = vL - Bq_CP4M2[i];   //potential on the left wall particles, fo constant potential
+            }
         }
         else {
             Bq_CP4M2[i] = (evscale*conv*Psi_w_i[i])/(0.5*q_R);
-            V_min_Bq_CP4M2[i] = vR - Bq_CP4M2[i];   //potential on the right wall particles
+            if (method == 0){
+                V_min_Bq_CP4M2[i] = vR - Bq_CP4M2[i];   //potential on the right wall particles, for constant potential
+            }
         }
     }
 
@@ -1791,7 +1815,7 @@ void FixConp::pot_wall_ions()
 
 }
 
-void FixConp::G_H_call() {
+void FixConp::G_H_cal() {
     int nlocal = atom->nlocal;
     double *q = atom->q;
     int Eplus[elenum_all] = {0};
@@ -2038,7 +2062,6 @@ void FixConp::update_charge_2()
     double **x = atom->x;
 
     Q_cal();
-    double R = 2188.6973610310;     //in fs/angstr
     V_cal();                    //calculates potentials V_m and V_p
 
     bigint curr_step = update->ntimestep - 1;
@@ -2048,13 +2071,15 @@ void FixConp::update_charge_2()
 
     if (mod == 0) {
         FILE *out_V_cal = fopen("V_cal", "a");
-        fprintf(out_V_cal, "%20ld %20.10f %20.10f %20.10f\n", curr_step, Q_sum, V_m, V_p);
+        fprintf(out_V_cal, "%20ld %20.10f %20.10f %20.10f\n", curr_step, Q_sum, V_m/evscale, V_p/evscale);
         fclose(out_V_cal);
     }
-    double dt = update->dt;     //timestep, have to use 1 for everynum in constant potential command
-    double I = (V_p - V_m)/R;
-    double dQ = I*dt;
-    Q_sum -= dQ;
+    if (discharge == 1){
+        double dt = update->dt;     //timestep, have to use 1 for everynum in constant potential command
+        double I = (V_p - V_m)/R;
+        double dQ = I*dt;
+        Q_sum -= dQ;
+    }
 
     //FILE *out_Q_cal = fopen("Q_cal", "a");
     for (i = 0; i < nall; ++i) {
