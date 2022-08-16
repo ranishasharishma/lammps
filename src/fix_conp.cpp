@@ -78,21 +78,13 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   molidR = utils::inumeric(FLERR,arg[6],false,lmp);
   if (strcmp(arg[7],"potential") == 0){
       method = 0;
-      vL = utils::numeric(FLERR,arg[8],false,lmp);
-      vR = utils::numeric(FLERR,arg[9],false,lmp);
+      vL = evscale*utils::numeric(FLERR,arg[8],false,lmp); //RS: voltage unit in transformed from V to e/Angstrom by multiplying by evscale (1 over Coulomb constant),
+      vR = evscale*utils::numeric(FLERR,arg[9],false,lmp);
   }
   else if (strcmp(arg[7],"charge") == 0){
       method = 1;
-      if (strcmp(arg[8],"constant") == 0){
-          discharge = 0;
-      }
-      else if (strcmp(arg[8],"discharge") == 0){
-          discharge = 1;
-      }
-      else{
-          error->all(FLERR,"invalid arguments for constant charge");
-      }
-      R = evscale*utils::numeric(FLERR,arg[9],false,lmp);       //RS: unit of R tranformed as during the calculation voltage unit in transformed by multiplying by evsacle
+      Vs = evscale*utils::numeric(FLERR,arg[8],false,lmp);
+      R = evscale*utils::numeric(FLERR,arg[9],false,lmp);   //RS: as the unit of voltage is transformed, also the unit of R is transformed
   }
   else {
       error->all(FLERR,"invalid method");
@@ -247,9 +239,9 @@ void FixConp::setup(int vflag)
 
   //RS: code added start
   //to overrule kmax, are different for different initial charges, which results in different amatrix, the effect is especially large when ions are removed from box
-    //kxmax = 7;
-    //kymax = 7;
-    //kzmax = 19;
+    //kxmax = 6;
+    //kymax = 6;
+    //kzmax = 12;
 
     FILE *out_k_values = fopen("k_values", "a");
     fprintf(out_k_values,"%20d %20d %20d\n", kxmax, kymax, kzmax);
@@ -281,10 +273,10 @@ void FixConp::setup(int vflag)
 
   int nmax = atom->nmax;
   //double evscale = 0.069447; //RS: now declared as global constant, so it can be used in other functions
-  if (method == 0){
-      vL *= evscale;
-      vR *= evscale;
-  }
+  //if (method == 0){           //RS: now just done as soon as the input aruments are read
+  //    vL *= evscale;
+  //    vR *= evscale;
+  //}
 
   memory->create3d_offset(cs,-kmax,kmax,3,nmax,"fixconp:cs");
   memory->create3d_offset(sn,-kmax,kmax,3,nmax,"fixconp:sn");
@@ -2074,11 +2066,11 @@ void FixConp::update_charge_2()
         fprintf(out_V_cal, "%20ld %20.10f %20.10f %20.10f\n", curr_step, Q_sum, V_m/evscale, V_p/evscale);
         fclose(out_V_cal);
     }
-    if (discharge == 1){
+    if (R != 0.0){
         double dt = update->dt;     //timestep, have to use 1 for everynum in constant potential command
-        double I = (V_p - V_m)/R;
+        double I = (Vs-(V_p - V_m))/R;
         double dQ = I*dt;
-        Q_sum -= dQ;
+        Q_sum += dQ;
     }
 
     //FILE *out_Q_cal = fopen("Q_cal", "a");
