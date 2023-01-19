@@ -136,7 +136,7 @@ class FixConp : public Fix {
   int method;       //RS: method = 0 is constant potential, method = 1 is constant charge/discharging/charging
   //input argument for constant charge/discharging/charging
   double Vs;        //RS: voltage of source, for constant charge this is a dummy value and will never be used, for discharging use Vs = 0
-  double R;         //RS: resistance for discharging/charging, use 0 for constant charge, use negative value for discharging, and positive value for charging
+  double R;         //RS: resistance for discharging/charging, use 0 for constant charge
 
   PPPM obj_kspace = PPPM(lmp);
   //Ewald obj_kspace = Ewald(lmp);

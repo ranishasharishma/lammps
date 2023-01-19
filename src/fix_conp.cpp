@@ -62,9 +62,11 @@ extern "C" {
 /* ---------------------------------------------------------------------- */
 //RS on 15-07-2022: the fix command has been adjusted to
 // fix [ID] all conp [Nevery] [penalty] [Molecule-ID 1] [Molecule-ID 2] [Method] [Input arg 1] [Input arg 2] [Minimization method] [Log] [Matrix]
-// for Method use potential or charge (i.e, simulate constant potential or constant charge/discharge)
-// for potential: Input arg 1 = potential left, Input arg 2 = potential right (in Volt)
-// for charge: Input arg 1 = constant/discharge, Input arg 2 = Resistance in (fs*V)/e
+// for [Method] use the word potential (for constant potential simulation) or charge (for constant charge, charging or discharging)
+// for simulating constant potential: [Input arg 1] = potential left, [Input arg 2] = potential right (in Volt)
+// for simulating constant charge: [Input arg 1] = dummy value, [Input arg 2] = 0
+// for simulating charging: [Input arg 1] = potential of source (in Volt), [Input arg 2] = Resistance (in fs*V)/e
+// for simulating discharging: [Input arg 1] = 0, [Input arg 2] = Resistance (in fs*V)/e
 
 FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg)
